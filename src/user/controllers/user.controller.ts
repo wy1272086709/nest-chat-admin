@@ -1,13 +1,14 @@
 import { Controller, Get, Post, Body, Param, Put, Delete, Query } from '@nestjs/common';
 import { UserService } from '../services/user.service';
 import { ChatUser } from '@prisma/client';
-import { CreateUserDto, LoginDto } from '../dto/user.dto';
-import { EmailService } from '@/common/services/email.service';
-import { RedisService } from '@/common/services/redis.service';
-import { AuthService } from '@/auth/services/auth.service';
-import { Public } from '@/auth/decorators/public.decorator';
-import { CurrentUser } from '@/auth/decorators/current-user.decorator';
-import { DataResult } from '@/common/interceptors/transform.interceptor';
+import { CreateUserDto, ForgetPasswordDto, LoginDto, SendEmailDto, EmailVerificationType } from '../dto/user.dto';
+import { EmailService } from '@/common/core/services/email.service';
+import { RedisService } from '@/common/core/services/redis.service';
+import { AuthService } from '@/common/auth/services/auth.service';
+import { Public } from '@/common/auth/decorators/public.decorator';
+import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
+import { DataResult } from '@/common/core/interceptors/transform.interceptor';
+import { ApiOperation } from '@nestjs/swagger';
 
 @Controller('users')
 export class UserController {
@@ -38,8 +39,11 @@ export class UserController {
       let message = '';
       let data: Partial<ChatUser> | null = null;
       if (createUserDto.code !== codeVal) {
-        message = '验证码错误';
-        data = null;
+        return {
+          message: '验证码错误',
+          data: null,
+          result: false,
+        };
       }
       // 校验数据合法性
       const user = await this.userService.create(createUserDto);
@@ -62,13 +66,16 @@ export class UserController {
     }
   }
 
+  // 发送验证码到邮箱邮箱, type 为 register 或 forgetPassword
   @Post('sendEmail')
   @Public() // 标记为公开路由，不需要JWT认证
-  async sendEmailTo(@Body('to') to: string) {
+  @ApiOperation({ description: '发送验证码到邮箱邮箱' })
+  async sendEmailTo(@Body() sendEmailDto: SendEmailDto) {
+    const { to, type } = sendEmailDto;
     try {
       // 生成验证码
       const code = this.emailService.generateVerificationCode();
-      const key = `verificationCode:${to}:limit`;
+      const key = `verificationCode:${to}:${type}:limit`;
       if (await this.redisService.get(key)) {
         return {
           data: null,
@@ -76,7 +83,7 @@ export class UserController {
           result: false,
         }
       }
-      const codeKey = `verificationCode:${to}`;
+      const codeKey = `verificationCode:${to}:${type}`;
       // Redis 存储验证码，过期时间为 10 分钟
       // 这里可以使用 Redis 客户端，例如 ioredis 或 redis
       await this.redisService.set(codeKey, code, 10 * 60);
@@ -103,23 +110,86 @@ export class UserController {
     }
   }
 
+  @Post('forgetPassword')
+  @Public() // 标记为公开路由，不需要JWT认证
+  @ApiOperation({ description: '忘记密码，重置密码' })
+  async forgetPassword(@Body() forgetPasswordDto: ForgetPasswordDto) {
+    try {
+      const { username, email, code, password } = forgetPasswordDto;
+
+      // 1. 判断用户或者邮箱是否存在
+      const user = await this.userService.findByUsername(username);
+      if (!user) {
+        return {
+          message: '用户不存在',
+          data: null,
+          result: false,
+        };
+      }
+
+      // 校验邮箱是否匹配
+      if (user.email !== email) {
+        return {
+          message: '邮箱与用户不匹配',
+          data: null,
+          result: false,
+        };
+      }
+
+      // 2. 校验验证码是否正确
+      const codeKey = `verificationCode:${email}:${EmailVerificationType.FORGET_PASSWORD}`;
+      const storedCode = await this.redisService.get(codeKey);
+
+      if (!storedCode) {
+        return {
+          message: '验证码已过期或不存在',
+          data: null,
+          result: false,
+        };
+      }
+
+      if (code !== storedCode) {
+        return {
+          message: '验证码错误',
+          data: null,
+          result: false,
+        };
+      }
+
+      // 3. 更新密码
+      const passwordHash = await import('bcryptjs').then(bcrypt => bcrypt.hash(password, 10));
+      await this.userService.update(user.id, { passwordHash });
+
+      // 清除已使用的验证码
+      await this.redisService.del(codeKey);
+
+      // 4. 更新密码成功后，返回成功信息
+      return {
+        message: '密码重置成功',
+        data: {
+          username: user.username,
+          email: user.email,
+        },
+        result: true,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '密码重置失败',
+        data: null,
+        result: false,
+      };
+    }
+  }
+
   @Post('login')
   @Public() // 标记为公开路由，不需要JWT认证
   async login(@Body() loginDto: LoginDto) {
     try {
       // 检查验证码是否正确
       // 从 Redis 获取存储的验证码
-      const storedCode = await this.redisService.get(`verificationCode:${loginDto.account}`);
       let message = ''; 
       let data = null;
-      if (!storedCode) {
-        message = '验证码已过期或不存在';
-      }
-
-      // 验证码不区分大小写比较
-      if (storedCode.toLowerCase() !== loginDto.verificationCode.toLowerCase()) {
-        message = '验证码错误';
-      }
 
       // 使用AuthService验证用户凭据
       const user = await this.authService.validateUser(loginDto.account, loginDto.password);
@@ -158,6 +228,18 @@ export class UserController {
       await this.redisService.del(`verificationCode:${loginDto.account}`);
     }
   }
+
+
+  @Post('logout')
+  async logout(@CurrentUser() user: ChatUser) {
+    // 清除用户 token
+    await this.authService.logout(user);
+    return {
+      message: '退出成功',
+      result: true,
+      data: null,
+    };
+  } 
 
   @Get('profile')
   async getProfile(@CurrentUser() user: ChatUser) {

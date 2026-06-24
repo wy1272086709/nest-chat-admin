@@ -1,5 +1,5 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../common/services/prisma.service';
+import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
+import { PrismaService } from '../../common/database/services/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { ChatUser } from '@prisma/client';
 import { UserStatus } from 'prisma/enum';
@@ -15,7 +15,7 @@ export class UserService {
       where: { email: userData.email! }
     });
     if (existingUser) {
-      throw new ConflictException('邮箱已存在！');
+      throw new HttpException('邮箱已存在！', HttpStatus.BAD_REQUEST);
     }
 
     // 检查用户名是否已存在
@@ -23,7 +23,7 @@ export class UserService {
       where: { username: userData.username! }
     });
     if (existingUsername) {
-      throw new ConflictException('用户名已存在！');
+      throw new HttpException('用户名已存在！', HttpStatus.BAD_REQUEST);
     }
 
     const passwordHash = await bcrypt.hash(userData.password, 10);
