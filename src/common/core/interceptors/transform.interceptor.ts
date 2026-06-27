@@ -37,11 +37,10 @@ export class TransformInterceptor<T>
 
     return next.handle().pipe(
       map((data) => {
-        // 否则包装成标准格式
         return {
           // 判断请求成功与否
           result: data.result,
-          code: 200,
+          code: 0,
           data: data.data,
           message: data?.message,
         };

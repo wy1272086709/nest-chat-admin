@@ -110,26 +110,15 @@ export class UpdateUserDto {
   @IsEmail({}, { message: '请输入有效的邮箱地址' })
   email?: string;
 
-  @ApiProperty({ description: 'Password', required: false })
-  @IsOptional()
+  @ApiProperty({ description: 'nickname', required: false })
+  @IsNotEmpty({ message: '昵称不能为空' })
   @IsString()
-  @MinLength(6, { message: '密码长度不能小于 6 个字符' })
-  password?: string;
+  nickname: string;
 
   @ApiProperty({ description: 'Avatar URL', required: false })
   @IsOptional()
   @IsString()
   avatarUrl?: string;
-
-  @ApiProperty({ description: 'User bio', required: false })
-  @IsOptional()
-  @IsString()
-  bio?: string;
-
-  @ApiProperty({ description: 'User status', required: false })
-  @IsOptional()
-  @IsEnum(UserStatus)
-  status?: UserStatus;
 }
 
 export class LoginDto {
@@ -144,6 +133,11 @@ export class LoginDto {
   password: string;
 }
 
+export class SearchDto {
+  @ApiProperty({ description: '搜索查询' })
+  @IsNotEmpty({ message: '搜索查询不能为空' })
+  query: string;
+}
 
 export class UserResponseDto {
   id: string;
@@ -160,4 +154,16 @@ export class UserResponseDto {
   createdAt: Date;
   updatedAt: Date;
   lastLoginAt?: Date;
+}
+
+export class AddFriendDto {
+  @ApiProperty({ description: '接收好友申请的用户ID' })
+  @IsNotEmpty({ message: '接收者ID不能为空' })
+  @IsString({ message: '接收者ID必须是字符串' })
+  receiverId: string;
+
+  @ApiProperty({ description: '好友申请备注', required: false })
+  @IsOptional()
+  @IsString({ message: '好友申请备注必须是字符串' })
+  message?: string;
 }

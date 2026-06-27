@@ -35,11 +35,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : undefined
     );
 
+    // 与 TransformInterceptor 的成功响应保持同一套字段（result/code/data/message），
+    // 额外保留 path 作为调试辅助，便于定位异常请求。
     const responseBody = {
-      success: false,
+      result: false,
       code: status,
-      path: request.url,
+      data: null,
       message: typeof exception === 'string' ? exception : message,
+      path: request.url,
     };
 
     response.status(status).json(responseBody);

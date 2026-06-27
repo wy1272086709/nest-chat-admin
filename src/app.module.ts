@@ -14,6 +14,9 @@ import { TransformInterceptor } from './common/core/interceptors/transform.inter
 import { TokenRefreshInterceptor } from './common/auth/interceptors/token-refresh.interceptor';
 import { GlobalExceptionFilter } from './common/core/filters/exception.filter';
 import { JwtAuthGuard } from './common/auth/guards/jwt-auth.guard';
+import { MinioModule } from './minio/minio.module';
+import { NotificationModule } from './notification/notification.module';
+import { ChatModule } from './chat/chat.module';
 
 const suffix = process.env.NODE_ENV ?? 'development';
 
@@ -55,6 +58,9 @@ const suffix = process.env.NODE_ENV ?? 'development';
     }),
     AuthModule,
     UserModule,
+    MinioModule,
+    NotificationModule,
+    ChatModule,
   ],
   providers: [
     {

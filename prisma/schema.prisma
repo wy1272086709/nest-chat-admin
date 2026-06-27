@@ -47,10 +47,17 @@ enum MessageType {
   VIDEO
 }
 
-enum MessageStatus {
-  SENT
-  DELIVERED
-  READ
+// 通知类型
+enum NotificationType {
+  FRIEND_REQUEST   // 好友申请
+  GROUP_INVITATION  // 群聊邀请
+}
+
+// 通知处理结果
+enum NotificationResult {
+  PENDING   // 待处理
+  ACCEPTED  // 同意
+  REJECTED  // 拒绝
 }
 
 // ===== 聊天用户模型 =====
@@ -71,13 +78,19 @@ model ChatUser {
 
   // 聊天关系
   sentMessages    Message[] @relation("MessageSender")
-  receivedMessages MessageRecipient[]
   createdRooms    ChatRoom[] @relation("RoomCreator")
   roomMembers     RoomMember[]
   ownedRooms      ChatRoom[] @relation("RoomOwner")
   uploadedFiles   FileStorage[]
   articles        Article[]  // 用户发表的文章
+  chatClearStates ChatClearState[]
 
+  // 通知和收藏关系
+  receivedNotifications Notification[] @relation("NotificationReceiver")
+  sentNotifications     Notification[] @relation("NotificationSender")
+  favorites              Favorite[]
+  friendshipsSender       ChatFriendship[] @relation("FriendshipSender")
+  friendshipsReceiver       ChatFriendship[] @relation("FriendshipReceiver")
   @@index([status, createdAt])
   @@map("chat_users")
 }
@@ -193,6 +206,7 @@ model ChatRoom {
   owner         ChatUser     @relation("RoomOwner", fields: [ownerId], references: [id])
   messages      Message[]
   members       RoomMember[]
+  clearStates   ChatClearState[]
 
   // 管理员字段
   isArchived    Boolean      @default(false)  // 是否已归档
@@ -214,7 +228,7 @@ model RoomMember {
   user         ChatUser         @relation(fields: [userId], references: [id])
 
   @@unique([roomId, userId])
-  @@map("room_members")
+  @@map("chat_room_members")
 }
 
 model Message {
@@ -228,6 +242,11 @@ model Message {
   fileName     String?     // 原始文件名
   fileSize     Int?        // 文件大小（字节）
   fileType     String?     // MIME类型
+  // 媒体扩展信息（图片/音视频）
+  thumbnailUrl String?     // 缩略图/封面 URL（图片、视频封面、文件预览）
+  mediaWidth   Int?        // 媒体宽度（图片/视频，px）
+  mediaHeight  Int?        // 媒体高度（图片/视频，px）
+  duration     Int?        // 时长（音/视频，秒）
   // 其他字段
   isEdited     Boolean     @default(false)
   editedAt     DateTime?
@@ -237,30 +256,27 @@ model Message {
 
   room         ChatRoom    @relation(fields: [roomId], references: [id])
   sender       ChatUser    @relation("MessageSender", fields: [senderId], references: [id])
-  recipients   MessageRecipient[]
 
   // 搜索索引（只存6个月内）
   searchIndex  MessageSearchIndex?
 
   @@index([roomId, createdAt])
   @@index([senderId, createdAt])
-  @@map("messages")
+  @@map("chat_messages")
 }
 
-// 消息接收状态
-model MessageRecipient {
-  id         String           @id @default(cuid())
-  messageId  String
-  userId     String
-  status     MessageStatus    @default(SENT)
-  readAt     DateTime?
-  receivedAt DateTime         @default(now())
+model ChatClearState {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  clearedAt DateTime @default(now())
 
-  message    Message          @relation(fields: [messageId], references: [id])
-  user       ChatUser         @relation(fields: [userId], references: [id])
+  room      ChatRoom @relation(fields: [roomId], references: [id])
+  user      ChatUser @relation(fields: [userId], references: [id])
 
-  @@unique([messageId, userId])
-  @@map("message_recipients")
+  @@unique([roomId, userId])
+  @@index([userId, clearedAt])
+  @@map("chat_clear_states")
 }
 
 // 消息搜索索引（性能优化）
@@ -273,7 +289,7 @@ model MessageSearchIndex {
   message   Message  @relation(fields: [messageId], references: [id])
 
   @@index([content]) // 创建全文搜索索引
-  @@map("message_search_index")
+  @@map("chat_message_search_index")
 }
 
 model FileStorage {
@@ -293,3 +309,57 @@ model FileStorage {
   @@map("file_storage")
 }
 
+// ===== 通知系统 =====
+model Notification {
+  id           String             @id @default(cuid())
+  type         NotificationType   // 通知类型：好友申请、群聊邀请
+  isRead       Boolean            @default(false)  // 是否已读
+  result       NotificationResult @default(PENDING) // 处理结果：待处理、同意、拒绝
+  targetId     String             // 邀请对象ID：好友申请时为好友ID，群聊邀请时为chat_room的ID
+  extra        Json?              // 额外信息：加好友时的打招呼提示语等，JSON格式
+
+  // 关系
+  receiverId   String             // 接收者ID
+  senderId     String             // 发送者ID
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  receiver     ChatUser           @relation("NotificationReceiver", fields: [receiverId], references: [id])
+  sender       ChatUser           @relation("NotificationSender", fields: [senderId], references: [id])
+
+  @@index([receiverId, isRead, createdAt])
+  @@index([type, result])
+  @@map("chat_notifications")
+}
+
+// ===== 好友关系 =====
+model ChatFriendship {
+  id        String   @id @default(cuid())
+  senderId   String
+  receiverId   String
+  createdAt DateTime @default(now())
+
+  sender     ChatUser @relation("FriendshipSender", fields: [senderId], references: [id])
+  receiver   ChatUser @relation("FriendshipReceiver", fields: [receiverId], references: [id])
+
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("chat_friendships")
+}
+
+// ===== 收藏系统 =====
+model Favorite {
+  id           String   @id @default(cuid())
+  targetType   String   // 收藏类型：message, user, group等
+  targetId     String   // 收藏目标ID
+  userId       String   // 用户ID
+
+  createdAt    DateTime @default(now())
+
+  user         ChatUser @relation(fields: [userId], references: [id])
+
+  @@unique([userId, targetType, targetId]) // 防止重复收藏
+  @@index([userId, targetType])
+  @@map("chat_favorites")
+}

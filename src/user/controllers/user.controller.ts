@@ -1,7 +1,16 @@
-import { Controller, Get, Post, Body, Param, Put, Delete, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete, Query, Request } from '@nestjs/common';
 import { UserService } from '../services/user.service';
 import { ChatUser } from '@prisma/client';
-import { CreateUserDto, ForgetPasswordDto, LoginDto, SendEmailDto, EmailVerificationType } from '../dto/user.dto';
+import {
+  AddFriendDto,
+  CreateUserDto,
+  ForgetPasswordDto,
+  LoginDto,
+  SendEmailDto,
+  EmailVerificationType,
+  UpdateUserDto,
+  SearchDto,
+} from '../dto/user.dto';
 import { EmailService } from '@/common/core/services/email.service';
 import { RedisService } from '@/common/core/services/redis.service';
 import { AuthService } from '@/common/auth/services/auth.service';
@@ -34,7 +43,7 @@ export class UserController {
   async register(@Body() createUserDto: CreateUserDto): Promise<DataResult<Partial<ChatUser>>> {
     try {
       // 校验验证码是否正确
-      const codeKey = `verificationCode:${createUserDto.email}`;
+      const codeKey = `verificationCode:${createUserDto.email}:${EmailVerificationType.REGISTER}`;
       const codeVal = await this.redisService.get(codeKey);
       let message = '';
       let data: Partial<ChatUser> | null = null;
@@ -241,21 +250,121 @@ export class UserController {
     };
   } 
 
-  @Get('profile')
-  async getProfile(@CurrentUser() user: ChatUser) {
-    return {
-      message: '获取用户信息成功',
-      data: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        avatarUrl: user.avatarUrl,
-        bio: user.bio,
-        status: user.status,
-        lastLoginAt: user.lastLoginAt,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-      }
-    };
+  @Post('saveProfile')
+  async saveProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
+    try {
+    // 更新用户信息
+      const result = await this.userService.update(req.user.id, updateUserDto);
+      return {
+        message: '用户信息更新成功',
+        result: true,
+        data: result,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '用户信息更新失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
+  @Post('searchFriend')
+  async searchFriend(@CurrentUser() user: ChatUser, @Body() searchDto: SearchDto) {
+    try {
+      const result = await this.userService.searchUsers(searchDto.query, user.id);
+      return {
+        message: '用户搜索成功',
+        result: true,
+        data: result ? [result] : [],
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '用户搜索失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
+  @Post('searchUsers')
+  @ApiOperation({ description: '模糊搜索用户' })
+  async searchUsersFuzzy(@Body() searchDto: SearchDto) {
+    try {
+      const users = await this.userService.searchUsersFuzzy(searchDto.query);
+      return {
+        message: '用户模糊搜索成功',
+        result: true,
+        data: users,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '用户模糊搜索失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
+  // 添加好友的方法
+  @Post('addFriend')
+  async addFriend(@CurrentUser() user: ChatUser, @Body() addFriendDto: AddFriendDto) {
+    try {
+      await this.userService.addFriend(user.id, addFriendDto);
+      return {
+        message: '好友申请已发送',
+        result: true,
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '添加好友失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
+  @Get('friends')
+  async getFriends(@CurrentUser() user: ChatUser) {
+    try {
+      const result = await this.userService.getFriends(user.id);
+      return {
+        message: '好友列表获取成功',
+        result: true,
+        data: result,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '好友列表获取失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
+  @Get('groups')
+  @ApiOperation({ description: '获取当前用户加入的群聊列表（含角色与成员数，排除私聊）' })
+  async getGroups(@CurrentUser() user: ChatUser) {
+    try {
+      const result = await this.userService.getGroups(user.id);
+      return {
+        message: '群聊列表获取成功',
+        result: true,
+        data: Array.isArray(result) ? result : [],
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '群聊列表获取失败',
+        result: false,
+        data: null,
+      };
+    }
   }
 }

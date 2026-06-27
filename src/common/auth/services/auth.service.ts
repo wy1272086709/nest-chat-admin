@@ -3,11 +3,13 @@ import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../../../user/services/user.service';
 import { ChatUser } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
+    private config: ConfigService,
     @Inject(forwardRef(() => UserService))
     private userService: UserService,
   ) {}
@@ -45,13 +47,17 @@ export class AuthService {
    * @returns 包含access_token和用户信息的对象
    */
   async login(user: ChatUser): Promise<{ access_token: string; user: Omit<ChatUser, 'passwordHash'> }> {
+    // 从配置中获取JWT过期时间
+    const expiresIn = this.config.get('jwt.expiresIn');
+
     const payload = {
       sub: user.id,
       email: user.email,
-      username: user.username
+      username: user.username,
     };
-    // 设置 7 天过期时间
-    const access_token = this.jwtService.sign(payload, { expiresIn: '7d' });
+
+    // 使用配置中的过期时间
+    const access_token = this.jwtService.sign(payload, { expiresIn });
 
     // 返回token和用户信息（不包含密码）
     const { passwordHash, ...userWithoutPassword } = user;
