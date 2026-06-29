@@ -130,10 +130,10 @@ export class UserService {
   }
 
   /**
-   * 精确搜索用户 - 按用户名或邮箱精确匹配
+   * 精确搜索用户 - 按用户名或邮箱精确匹配，排除自己和已有好友
    */
   async searchUsers(query: string, currentUserId?: string): Promise<ChatUser | null> {
-    return this.prisma.chatUser.findFirst({
+    const user = await this.prisma.chatUser.findFirst({
       where: {
         id: currentUserId ? { not: currentUserId } : undefined,
         OR: [
@@ -152,6 +152,22 @@ export class UserService {
         ]
       },
     });
+
+    if (!user || !currentUserId) {
+      return user;
+    }
+
+    const [senderId, receiverId] = this.getFriendshipPair(currentUserId, user.id);
+    const existingFriendship = await this.prisma.chatFriendship.findUnique({
+      where: {
+        senderId_receiverId: {
+          senderId,
+          receiverId,
+        },
+      },
+    });
+
+    return existingFriendship ? null : user;
   }
 
   /**
@@ -251,9 +267,9 @@ export class UserService {
     const [userAId, userBId] = this.getFriendshipPair(senderId, receiverId);
     const existingFriendship = await this.prisma.chatFriendship.findUnique({
       where: {
-        userAId_userBId: {
-          userAId,
-          userBId,
+        senderId_receiverId: {
+          senderId: userAId,
+          receiverId: userBId,
         },
       },
     });
@@ -296,21 +312,21 @@ export class UserService {
     const friendships = await this.prisma.chatFriendship.findMany({
       where: {
         OR: [
-          { userAId: userId },
-          { userBId: userId },
+          { receiverId: userId },
+          { senderId: userId },
         ],
       },
       include: {
-        userA: true,
-        userB: true,
+        receiver: true,
+        sender: true,
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
-
+    console.log('friendships', friendships);
     return friendships.map((friendship) => {
-      const friend = friendship.userAId === userId ? friendship.userB : friendship.userA;
+      const friend = friendship.receiverId === userId ? friendship.sender : friendship.receiver;
       const { passwordHash, ...safeFriend } = friend;
       return safeFriend;
     });

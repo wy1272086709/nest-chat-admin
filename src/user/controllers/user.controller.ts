@@ -33,10 +33,9 @@ export class UserController {
     return this.userService.findAll();
   }
 
-  @Get(':id')
-  async findById(@Param('id') id: string): Promise<ChatUser> {
-    return this.userService.findById(id);
-  }
+  // 注意：静态路由（friends/groups 等）必须声明在 @Get(':id') 之前。
+  // NestJS 按声明顺序注册路由，Express 会匹配第一个注册的路由，
+  // 若 ':id' 在前，GET /users/friends 会被它捕获（id='friends'），永远到不了 getFriends。
 
   @Post('register')
   @Public() // 标记为公开路由，不需要JWT认证
@@ -332,7 +331,9 @@ export class UserController {
   @Get('friends')
   async getFriends(@CurrentUser() user: ChatUser) {
     try {
+      console.log('user--->getFriends', user);
       const result = await this.userService.getFriends(user.id);
+      console.log('result', result);
       return {
         message: '好友列表获取成功',
         result: true,
@@ -366,5 +367,11 @@ export class UserController {
         data: null,
       };
     }
+  }
+
+  // 动态参数路由放在最后，避免拦截 friends/groups 等静态路由。
+  @Get(':id')
+  async findById(@Param('id') id: string): Promise<ChatUser | null> {
+    return this.userService.findById(id);
   }
 }

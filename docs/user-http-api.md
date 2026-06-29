@@ -1,6 +1,6 @@
 # User HTTP 接口文档（好友 / 社交域）
 
-> 本文按**业务域**组织，聚焦「好友 / 社交」相关接口，覆盖好友关系的完整生命周期：**发起申请 → 处理申请 → 好友列表 → 群聊列表**。
+> 本文按**业务域**组织，聚焦「好友 / 社交」相关接口，覆盖好友关系的完整生命周期：**搜索用户 → 发起申请 → 处理申请 → 好友列表 → 群聊列表**。
 >
 > 这些接口分属**两个控制器**：发起申请、好友 / 群聊列表在 [user.controller.ts](../src/user/controllers/user.controller.ts)（`/api/users`）；处理好友申请在 [notification.controller.ts](../src/notification/notification.controller.ts)（`/api/notifications`），后者的处理逻辑（同意时建立好友关系）也归在本页，便于一处看完整个好友流程。
 >
@@ -23,20 +23,61 @@
 
 | # | 方法 | 路径 | 控制器 | 说明 |
 |---|---|---|---|---|
-| 3.1 | POST | `/api/users/addFriend` | UserController | 发起好友申请（创建一条 `FRIEND_REQUEST` 通知） |
-| 3.2 | POST | `/api/notifications/handleFriendRequest` | NotificationController | 同意 / 拒绝好友申请（同意则建立好友关系） |
-| 3.3 | GET | `/api/users/friends` | UserController | 当前用户的好友列表（对方用户资料） |
-| 3.4 | GET | `/api/users/groups` | UserController | 当前用户加入的群聊列表（含角色与成员数，排除私聊） |
+| 3.1 | POST | `/api/users/searchFriend` | UserController | 搜索可添加的用户（按用户名 / 邮箱精确匹配，排除当前用户和已有好友） |
+| 3.2 | POST | `/api/users/addFriend` | UserController | 发起好友申请（创建一条 `FRIEND_REQUEST` 通知） |
+| 3.3 | POST | `/api/notifications/handleFriendRequest` | NotificationController | 同意 / 拒绝好友申请（同意则建立好友关系） |
+| 3.4 | GET | `/api/users/friends` | UserController | 当前用户的好友列表（对方用户资料） |
+| 3.5 | GET | `/api/users/groups` | UserController | 当前用户加入的群聊列表（含角色与成员数，排除私聊） |
 
 ---
 
 ## 3. 接口详情
 
-### 3.1 添加好友（发起申请）
+### 3.1 搜索好友候选
+
+`POST /api/users/searchFriend` · [controller: searchFriend](../src/user/controllers/user.controller.ts) · [service: searchUsers](../src/user/services/user.service.ts)
+
+按 `query` 精确搜索用户，用于添加好友前查找目标用户。当前实现会按**用户名或邮箱**大小写不敏感精确匹配，并排除当前登录用户和已经是当前用户好友的用户；找到可添加用户时返回单元素数组，找不到或命中已是好友时返回空数组。
+
+**请求体** `SearchDto`：
+
+| 字段 | 类型 | 必填 | 校验 | 说明 |
+|---|---|---|---|---|
+| `query` | string | ✅ | 非空 | 搜索关键词；精确匹配 `username` 或 `email` |
+
+**成功响应** `data`：用户数组。当前接口最多返回 1 条记录；未命中时为 `[]`。
+
+```jsonc
+{
+  "result": true, "code": 200, "message": "用户搜索成功",
+  "data": [
+    {
+      "id": "userB",
+      "username": "b",
+      "email": "b@example.com",
+      "nickname": "小B",
+      "avatarUrl": null,
+      "bio": null,
+      "lastLoginAt": "2026-06-26T09:00:00.000Z",
+      "status": "ACTIVE",
+      "createdAt": "2026-06-01T00:00:00.000Z",
+      "updatedAt": "2026-06-26T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+**业务错误**（形态②，HTTP 200，`result:false`）：Controller 捕获异常后返回 `message: error.message || '用户搜索失败'`、`data:null`。
+
+> 注：该接口当前调用的是 `user.service.searchUsers(query, currentUserId)`，不是模糊搜索；模糊搜索对应的是 `POST /api/users/searchUsers`。
+
+---
+
+### 3.2 添加好友（发起申请）
 
 `POST /api/users/addFriend` · [controller: addFriend](../src/user/controllers/user.controller.ts) · [service: addFriend](../src/user/services/user.service.ts)
 
-向 `receiverId` 发起好友申请：创建一条 `type=FRIEND_REQUEST`、`result=PENDING` 的通知（`targetId=receiverId`，`extra.message` 存打招呼语），等待对方通过 [3.2 处理好友请求](#32-处理好友请求同意--拒绝) 处理。**本接口只建通知，不直接建好友关系，也不建私聊房间。**
+向 `receiverId` 发起好友申请：创建一条 `type=FRIEND_REQUEST`、`result=PENDING` 的通知（`targetId=receiverId`，`extra.message` 存打招呼语），等待对方通过 [3.3 处理好友请求](#33-处理好友请求同意--拒绝) 处理。**本接口只建通知，不直接建好友关系，也不建私聊房间。**
 
 **请求体** `AddFriendDto`：
 
@@ -66,11 +107,11 @@
 
 ---
 
-### 3.2 处理好友请求（同意 / 拒绝）
+### 3.3 处理好友请求（同意 / 拒绝）
 
 `POST /api/notifications/handleFriendRequest` · [controller: handleFriendRequest](../src/notification/notification.controller.ts) · [service: handleFriendRequest](../src/notification/notification.service.ts)
 
-> ⚠️ 该接口**位于 NotificationController（`/api/notifications`）**，不在 `/api/users`；只因与 [3.1](#31-添加好友发起申请) 同属好友流程而收录本页。
+> ⚠️ 该接口**位于 NotificationController（`/api/notifications`）**，不在 `/api/users`；只因与 [3.2](#32-添加好友发起申请) 同属好友流程而收录本页。
 
 处理发给当前用户的好友申请通知：
 
@@ -81,7 +122,7 @@
 
 | 字段 | 类型 | 必填 | 校验 | 说明 |
 |---|---|---|---|---|
-| `notificationId` | string | ✅ | 非空字符串 | 好友申请通知 ID（由 [3.1](#31-添加好友发起申请) 产生） |
+| `notificationId` | string | ✅ | 非空字符串 | 好友申请通知 ID（由 [3.2](#32-添加好友发起申请) 产生） |
 | `action` | enum | ✅ | `ACCEPTED` \| `REJECTED` | 处理动作 |
 
 **成功响应** `data`：更新后的通知（`Notification` 裸记录，**不含** `sender` 嵌套）
@@ -116,7 +157,7 @@
 
 ---
 
-### 3.3 获取好友列表
+### 3.4 获取好友列表
 
 `GET /api/users/friends` · [controller: getFriends](../src/user/controllers/user.controller.ts) · [service: getFriends](../src/user/services/user.service.ts)
 
@@ -150,7 +191,7 @@
 
 ---
 
-### 3.4 获取群聊列表
+### 3.5 获取群聊列表
 
 `GET /api/users/groups` · [controller: getGroups](../src/user/controllers/user.controller.ts) · [service: getGroups](../src/user/services/user.service.ts)
 
@@ -207,18 +248,22 @@ TOKEN="Bearer <your-jwt>"
 USERS="http://localhost:3000/api/users"
 NOTIFS="http://localhost:3000/api/notifications"
 
-# 3.1 添加好友（发起申请）
+# 3.1 搜索好友候选
+curl -X POST "$USERS/searchFriend" -H "Authorization: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"query":"b@example.com"}'
+
+# 3.2 添加好友（发起申请）
 curl -X POST "$USERS/addFriend" -H "Authorization: $TOKEN" -H "Content-Type: application/json" \
   -d '{"receiverId":"userB","message":"你好，我是小A"}'
 
-# 3.2 处理好友请求（同意 / 拒绝）
+# 3.3 处理好友请求（同意 / 拒绝）
 curl -X POST "$NOTIFS/handleFriendRequest" -H "Authorization: $TOKEN" -H "Content-Type: application/json" \
   -d '{"notificationId":"noti1","action":"ACCEPTED"}'   # 或 "REJECTED"
 
-# 3.3 好友列表
+# 3.4 好友列表
 curl "$USERS/friends" -H "Authorization: $TOKEN"
 
-# 3.4 群聊列表
+# 3.5 群聊列表
 curl "$USERS/groups" -H "Authorization: $TOKEN"
 ```
 

@@ -14,6 +14,7 @@ export const CurrentUser = createParamDecorator(
   (data: keyof ChatUser | undefined, ctx: ExecutionContext): ChatUser | any => {
     const request = ctx.switchToHttp().getRequest();
     const user = request.user;
+    console.log('user', user);
 
     // 如果指定了字段，只返回该字段的值
     return data ? user?.[data] : user;

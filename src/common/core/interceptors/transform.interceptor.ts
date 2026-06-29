@@ -37,12 +37,19 @@ export class TransformInterceptor<T>
 
     return next.handle().pipe(
       map((data) => {
+        // 控制器可能返回 null/undefined 或未按 DataResult 结构包装的值，
+        // 直接解构会抛 TypeError（进而被全局过滤器转成 500），这里做兜底处理。
+        const wrapped =
+          data && typeof data === 'object' && 'result' in data
+            ? (data as DataResult<T>)
+            : ({ result: true, data } as DataResult<T>);
+
         return {
           // 判断请求成功与否
-          result: data.result,
+          result: wrapped.result,
           code: 0,
-          data: data.data,
-          message: data?.message,
+          data: wrapped.data,
+          message: wrapped.message,
         };
       })
     );

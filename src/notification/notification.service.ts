@@ -123,9 +123,9 @@ export class NotificationService {
     return this.prisma.$transaction(async (tx) => {
       const existingFriendship = await tx.chatFriendship.findUnique({
         where: {
-          userAId_userBId: {
-            userAId,
-            userBId,
+          senderId_receiverId: {
+            senderId: userAId,
+            receiverId: userBId,
           },
         },
       });
@@ -133,8 +133,8 @@ export class NotificationService {
       if (!existingFriendship) {
         await tx.chatFriendship.create({
           data: {
-            userAId,
-            userBId,
+            senderId: userAId,
+            receiverId: userBId,
           },
         });
       }
