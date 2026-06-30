@@ -22,7 +22,7 @@ export class ChatService {
     });
 
     if (!member || member.status !== 'ACTIVE') {
-      throw new ForbiddenException('你不是该聊天的成员');
+      throw new ForbiddenException('你不是该房间的成员');
     }
 
     return member;

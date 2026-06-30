@@ -1,4 +1,5 @@
 import { MessageType } from '@prisma/client';
+import { Type } from 'class-transformer';
 import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, ValidateIf } from 'class-validator';
 
 export class CreateGroupRoomDto {
@@ -100,6 +101,7 @@ export class RoomIdDto {
 
 export class GetMessagesDto extends RoomIdDto {
   @IsOptional()
+  @Type(() => Number)
   @IsInt({ message: '分页大小必须是整数' })
   @Min(1)
   @Max(100)
@@ -109,6 +111,7 @@ export class GetMessagesDto extends RoomIdDto {
 /** HTTP 历史消息查询参数（roomId 走 path param，这里只放分页） */
 export class HistoryQueryDto {
   @IsOptional()
+  @Type(() => Number)
   @IsInt({ message: '分页大小必须是整数' })
   @Min(1)
   @Max(100)

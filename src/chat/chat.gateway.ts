@@ -110,12 +110,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(`room:${result.room.id}`);
 
+    // 私聊房间是懒创建的，接收方还没 join 进 room:X，只能通过 user: 个人房间触达。
+    // room:private 只负责把「房间元信息」同步给双方（刷新会话列表）；消息本身只发给接收方，
+    // 发送方通过下面的 message:sent ack 拿到回执——避免「user: 循环 + room:」双推导致发送方重复收到。
     for (const member of result.room.members) {
       this.server.to(`user:${member.userId}`).emit('room:private', result.room);
-      this.server.to(`user:${member.userId}`).emit('message:new', result.message);
     }
+    this.server.to(`user:${body.receiverId}`).emit('message:new', result.message);
 
-    this.server.to(`room:${result.room.id}`).emit('message:new', result.message);
     return { event: 'message:sent', data: result };
   }
 
