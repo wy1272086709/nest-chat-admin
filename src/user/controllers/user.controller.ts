@@ -18,6 +18,7 @@ import { Public } from '@/common/auth/decorators/public.decorator';
 import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
 import { DataResult } from '@/common/core/interceptors/transform.interceptor';
 import { ApiOperation } from '@nestjs/swagger';
+import { ChatGateway } from '@/chat/chat.gateway';
 
 @Controller('users')
 export class UserController {
@@ -26,6 +27,7 @@ export class UserController {
     private readonly emailService: EmailService,
     private readonly redisService: RedisService,
     private readonly authService: AuthService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   @Get()
@@ -312,7 +314,9 @@ export class UserController {
   @Post('addFriend')
   async addFriend(@CurrentUser() user: ChatUser, @Body() addFriendDto: AddFriendDto) {
     try {
-      await this.userService.addFriend(user.id, addFriendDto);
+      const notification = await this.userService.addFriend(user.id, addFriendDto);
+      this.chatGateway.emitToUser(notification.receiverId, 'notification:new', { notification });
+      this.chatGateway.emitToUser(notification.receiverId, 'friend:request', { notification });
       return {
         message: '好友申请已发送',
         result: true,
