@@ -10,6 +10,7 @@ import {
   EmailVerificationType,
   UpdateUserDto,
   SearchDto,
+  ChangeUserStatusDto,
 } from '../dto/user.dto';
 import { EmailService } from '@/common/core/services/email.service';
 import { RedisService } from '@/common/core/services/redis.service';
@@ -217,6 +218,8 @@ export class UserController {
       // 更新最后登录时间
       await this.userService.updateLastLogin(user.id);
 
+      this.chatGateway.disconnectUser(user.id);
+
       // 生成JWT token
       const loginResult = await this.authService.login(user);
 
@@ -335,7 +338,6 @@ export class UserController {
   @Get('friends')
   async getFriends(@CurrentUser() user: ChatUser) {
     try {
-      console.log('user--->getFriends', user);
       const result = await this.userService.getFriends(user.id);
       console.log('result', result);
       return {
@@ -367,6 +369,29 @@ export class UserController {
       console.log(error);
       return {
         message: error.message || '群聊列表获取失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
+  @Put(':id/status')
+  async changeStatus(@Param('id') id: string, @Body() body: ChangeUserStatusDto) {
+    try {
+      const result = await this.userService.changeStatus(id, body.status);
+      if (body.status !== 'ACTIVE') {
+        this.chatGateway.disconnectUser(id, '账号已被禁用', 'auth:disabled');
+      }
+
+      return {
+        message: '用户状态更新成功',
+        result: true,
+        data: result,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '用户状态更新失败',
         result: false,
         data: null,
       };

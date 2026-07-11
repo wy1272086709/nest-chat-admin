@@ -6,6 +6,14 @@ import { FriendRequestAction, HandleFriendRequestDto } from './dto/notification.
 export class NotificationService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly notificationSenderSelect = {
+    id: true,
+    username: true,
+    nickname: true,
+    email: true,
+    avatarUrl: true,
+  } as const;
+
   private getFriendshipPair(userId: string, friendId: string) {
     return [userId, friendId].sort() as [string, string];
   }
@@ -20,13 +28,7 @@ export class NotificationService {
       },
       include: {
         sender: {
-          select: {
-            id: true,
-            username: true,
-            nickname: true,
-            email: true,
-            avatarUrl: true,
-          },
+          select: this.notificationSenderSelect,
         },
       },
       orderBy: {
@@ -43,13 +45,7 @@ export class NotificationService {
       },
       include: {
         sender: {
-          select: {
-            id: true,
-            username: true,
-            nickname: true,
-            email: true,
-            avatarUrl: true,
-          },
+          select: this.notificationSenderSelect,
         },
       },
       orderBy: {
@@ -75,6 +71,11 @@ export class NotificationService {
       where: { id: notificationId },
       data: {
         isRead: true,
+      },
+      include: {
+        sender: {
+          select: this.notificationSenderSelect,
+        },
       },
     });
   }
@@ -115,6 +116,11 @@ export class NotificationService {
           result: 'REJECTED',
           isRead: true,
         },
+        include: {
+          sender: {
+            select: this.notificationSenderSelect,
+          },
+        },
       });
     }
 
@@ -144,6 +150,11 @@ export class NotificationService {
         data: {
           result: 'ACCEPTED',
           isRead: true,
+        },
+        include: {
+          sender: {
+            select: this.notificationSenderSelect,
+          },
         },
       });
     });

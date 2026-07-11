@@ -1,3 +1,4 @@
+import { UseInterceptors } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -9,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { AuthService } from '@/common/auth/services/auth.service';
+import { WsTokenRefreshInterceptor } from '@/common/auth/interceptors/ws-token-refresh.interceptor';
 import { ChatService } from './chat.service';
 import { CreateGroupRoomDto, GetMessagesDto, RoomIdDto, SendPrivateMessageDto, SendRoomMessageDto } from './dto/chat.dto';
 
@@ -19,6 +21,9 @@ type AuthenticatedSocket = Socket & {
       email: string;
       username: string;
     };
+    tokenExpiresAt?: number;
+    lastTokenRefreshAt?: number;
+    tokenJti?: string;
   };
 };
 
@@ -28,6 +33,7 @@ type AuthenticatedSocket = Socket & {
     origin: '*',
   },
 })
+@UseInterceptors(WsTokenRefreshInterceptor)
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   private server: Server;
@@ -47,18 +53,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       const payload = await this.authService.verifyToken(token);
-      const user = await this.authService.getUserById(payload.sub);
-      if (!user) {
-        client.emit('chat:error', { message: '用户不存在' });
-        client.disconnect();
-        return;
-      }
+      const user = await this.authService.validatePayload(payload);
 
       client.data.user = {
         id: user.id,
         email: user.email,
         username: user.username,
       };
+      if (payload.exp) {
+        client.data.tokenExpiresAt = payload.exp * 1000;
+      }
+      client.data.tokenJti = payload.jti;
       await client.join(`user:${user.id}`);
       client.emit('chat:connected', { userId: user.id });
     } catch (error) {
@@ -97,28 +102,42 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('message:sendRoom')
   async sendRoomMessage(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SendRoomMessageDto) {
-    const userId = this.getUserId(client);
-    const message = await this.chatService.sendRoomMessage(userId, body);
-    this.server.to(`room:${body.roomId}`).emit('message:new', message);
-    return { event: 'message:sent', data: message };
+    try {
+      const userId = this.getUserId(client);
+      const message = await this.chatService.sendRoomMessage(userId, body);
+      this.server.to(`room:${body.roomId}`).emit('message:new', message);
+      // 仍以事件形式回推 message:sent（保持「刷新会话列表」等已有行为，未升级客户端不受影响）
+      client.emit('message:sent', message);
+      // 返回普通对象 → socket.io ack：发送方若用 socket.emit(event, payload, cb) 发送，
+      // cb 会收到 { result, data }，用于在客户端精确确认这一条消息的投递结果（替代以前的「发后即忘」）
+      return { result: true, data: message };
+    } catch (error) {
+      return { result: false, message: error?.message || '发送失败' };
+    }
   }
 
   @SubscribeMessage('message:sendPrivate')
   async sendPrivateMessage(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SendPrivateMessageDto) {
-    const userId = this.getUserId(client);
-    const result = await this.chatService.sendPrivateMessage(userId, body);
+    try {
+      const userId = this.getUserId(client);
+      const result = await this.chatService.sendPrivateMessage(userId, body);
 
-    await client.join(`room:${result.room.id}`);
+      await client.join(`room:${result.room.id}`);
 
-    // 私聊房间是懒创建的，接收方还没 join 进 room:X，只能通过 user: 个人房间触达。
-    // room:private 只负责把「房间元信息」同步给双方（刷新会话列表）；消息本身只发给接收方，
-    // 发送方通过下面的 message:sent ack 拿到回执——避免「user: 循环 + room:」双推导致发送方重复收到。
-    for (const member of result.room.members) {
-      this.server.to(`user:${member.userId}`).emit('room:private', result.room);
+      // 私聊房间是懒创建的，接收方还没 join 进 room:X，只能通过 user: 个人房间触达。
+      // room:private 只负责把「房间元信息」同步给双方（刷新会话列表）；消息本身只发给接收方，
+      // 发送方通过下面的 message:sent 事件 + 返回值 ack 拿到回执——
+      // 避免「user: 循环 + room:」双推导致发送方重复收到。
+      for (const member of result.room.members) {
+        this.server.to(`user:${member.userId}`).emit('room:private', result.room);
+      }
+      this.server.to(`user:${body.receiverId}`).emit('message:new', result.message);
+      client.emit('message:sent', result);
+      // 返回 ack：cb 收到 { result, data }，data 为落库后的 message（含服务端 id）
+      return { result: true, data: result.message };
+    } catch (error) {
+      return { result: false, message: error?.message || '发送失败' };
     }
-    this.server.to(`user:${body.receiverId}`).emit('message:new', result.message);
-
-    return { event: 'message:sent', data: result };
   }
 
   @SubscribeMessage('message:list')
@@ -165,6 +184,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** 向某个聊天室所有在线成员推送事件 */
   emitToRoom(roomId: string, event: string, payload: unknown) {
     this.server.to(`room:${roomId}`).emit(event, payload);
+  }
+
+  disconnectUser(userId: string, message = '账号已在其他设备登录', event = 'auth:kicked') {
+    this.server.to(`user:${userId}`).emit(event, { message });
+    this.server.in(`user:${userId}`).disconnectSockets(true);
   }
 
   private getToken(client: Socket) {

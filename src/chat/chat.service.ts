@@ -159,6 +159,7 @@ export class ChatService {
 
   async sendPrivateMessage(senderId: string, dto: SendPrivateMessageDto) {
     const room = await this.getOrCreatePrivateRoom(senderId, dto.receiverId);
+    // 与群聊一致：透传全部媒体字段（缩略图/宽高/时长），避免私聊图片/文件消息丢失元数据
     const message = await this.sendRoomMessage(senderId, {
       roomId: room.id,
       content: dto.content,
@@ -167,6 +168,10 @@ export class ChatService {
       fileName: dto.fileName,
       fileSize: dto.fileSize,
       fileType: dto.fileType,
+      thumbnailUrl: dto.thumbnailUrl,
+      mediaWidth: dto.mediaWidth,
+      mediaHeight: dto.mediaHeight,
+      duration: dto.duration,
     });
 
     return {

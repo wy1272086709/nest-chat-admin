@@ -32,6 +32,8 @@
 
   连接成功 → 服务端发 `chat:connected`；失败 → 发 `chat:error` 并断开。
 
+  WebSocket 连接建立后采用单 token 无感续期：服务端会在收到聊天事件时检查当前 socket 保存的 token 过期时间；如果已进入刷新窗口，会签发新 token 并通过 `auth:tokenRefreshed` 推给当前客户端，连接和已加入房间不受影响。
+
 ## 3. 统一响应格式（HTTP）
 
 所有 HTTP 响应经 `TransformInterceptor` 包装为：
@@ -172,6 +174,9 @@ curl "http://localhost:3000/api/chat/rooms/room1/messages?take=20" \
 | 事件 | 数据 | 说明 |
 |---|---|---|
 | `chat:connected` | `{ userId }` | 连接认证成功 |
+| `auth:tokenRefreshed` | `{ access_token, token_type, expires_at, expires_in }` | WebSocket 长连接 token 已无感续期 |
+| `auth:kicked` | `{ message }` | 当前登录会话已失效，如账号在其他设备登录 |
+| `auth:disabled` | `{ message }` | 账号已被禁用，服务端会断开连接 |
 | `chat:error` | `{ message }` | 认证失败 / 异常 |
 | `room:joined` | `{ roomId }` | 加入房间成功 |
 | `room:created` | room | 新群创建（通知所有成员） |
@@ -193,6 +198,10 @@ const socket = io('http://localhost:3000/chat', {
 
 socket.on('connect', () => console.log('connected', socket.id));
 socket.on('chat:connected', (d) => console.log('auth ok', d));
+socket.on('auth:tokenRefreshed', ({ access_token }) => {
+  localStorage.setItem('access_token', access_token);
+  socket.auth = { token: access_token };
+});
 socket.on('chat:error', (e) => console.error(e));
 socket.on('message:new', (msg) => console.log('收到消息', msg));
 

@@ -1,18 +1,40 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../../../user/services/user.service';
 import { ChatUser } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
+import { RedisService } from '@/common/core/services/redis.service';
+
+type JwtPayload = {
+  sub: string;
+  email: string;
+  username: string;
+  jti?: string;
+  exp?: number;
+};
+
+type TokenResult = {
+  access_token: string;
+  token_type: 'Bearer';
+  expires_at: string;
+  expires_in: number;
+};
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
     private config: ConfigService,
+    private readonly redisService: RedisService,
     @Inject(forwardRef(() => UserService))
     private userService: UserService,
   ) {}
+
+  private getCurrentJtiKey(userId: string) {
+    return `auth:current-jti:${userId}`;
+  }
 
   /**
    * 验证用户凭据（用于Local Strategy）
@@ -33,12 +55,20 @@ export class AuthService {
 
       // 验证密码
       const passwordMatch = await bcrypt.compare(password, userByUsername.passwordHash);
-      return passwordMatch ? userByUsername : null;
+      if (!passwordMatch) {
+        return null;
+      }
+      this.assertUserActive(userByUsername);
+      return userByUsername;
     }
 
     // 验证密码
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-    return passwordMatch ? user : null;
+    if (!passwordMatch) {
+      return null;
+    }
+    this.assertUserActive(user);
+    return user;
   }
 
   /**
@@ -47,23 +77,86 @@ export class AuthService {
    * @returns 包含access_token和用户信息的对象
    */
   async login(user: ChatUser): Promise<{ access_token: string; user: Omit<ChatUser, 'passwordHash'> }> {
-    // 从配置中获取JWT过期时间
-    const expiresIn = this.config.get('jwt.expiresIn');
-
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-    };
-
-    // 使用配置中的过期时间
-    const access_token = this.jwtService.sign(payload, { expiresIn });
+    this.assertUserActive(user);
+    const jti = randomUUID();
+    const tokenResult = await this.issueAccessToken(user, jti);
 
     // 返回token和用户信息（不包含密码）
     const { passwordHash, ...userWithoutPassword } = user;
     return {
-      access_token,
+      access_token: tokenResult.access_token,
       user: userWithoutPassword,
+    };
+  }
+
+  async refreshAccessToken(user: Pick<ChatUser, 'id' | 'email' | 'username' | 'status'>, jti: string): Promise<TokenResult> {
+    this.assertUserActive(user);
+    await this.assertSessionIsCurrent(user.id, jti);
+    return this.issueAccessToken(user, jti);
+  }
+
+  async validatePayload(payload: JwtPayload): Promise<ChatUser> {
+    const user = await this.userService.findById(payload.sub);
+    if (!user) {
+      throw new UnauthorizedException('用户不存在');
+    }
+
+    this.assertUserActive(user);
+    await this.assertSessionIsCurrent(user.id, payload.jti);
+    return user;
+  }
+
+  async validateUserSession(userId: string, jti?: string): Promise<ChatUser> {
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('用户不存在');
+    }
+
+    this.assertUserActive(user);
+    await this.assertSessionIsCurrent(user.id, jti);
+    return user;
+  }
+
+  async assertSessionIsCurrent(userId: string, jti?: string) {
+    if (!jti) {
+      throw new UnauthorizedException('登录会话已失效，请重新登录');
+    }
+
+    const currentJti = await this.redisService.get(this.getCurrentJtiKey(userId));
+    if (currentJti !== jti) {
+      throw new UnauthorizedException('账号已在其他设备登录');
+    }
+  }
+
+  assertUserActive(user: Pick<ChatUser, 'status'>) {
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('账号已被禁用');
+    }
+  }
+
+  private async issueAccessToken(user: Pick<ChatUser, 'id' | 'email' | 'username'>, jti: string): Promise<TokenResult> {
+    const accessToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        username: user.username,
+        jti,
+      },
+      {
+        expiresIn: this.config.get('jwt.expiresIn'),
+      },
+    );
+
+    const decoded = this.jwtService.decode(accessToken) as JwtPayload | null;
+    const expiresAtMs = decoded?.exp ? decoded.exp * 1000 : Date.now();
+    const expiresIn = Math.max(Math.floor((expiresAtMs - Date.now()) / 1000), 1);
+    await this.redisService.set(this.getCurrentJtiKey(user.id), jti, expiresIn);
+
+    return {
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_at: new Date(expiresAtMs).toISOString(),
+      expires_in: expiresIn,
     };
   }
 
@@ -72,7 +165,7 @@ export class AuthService {
    * @param token JWT token字符串
    * @returns 解析后的payload
    */
-  async verifyToken(token: string): Promise<any> {
+  async verifyToken(token: string): Promise<JwtPayload> {
     return this.jwtService.verify(token);
   }
 
@@ -89,7 +182,15 @@ export class AuthService {
    * 退出登录
    * @param user 用户信息
    */
-  async logout(user: ChatUser): Promise<void> {
-    
+  async logout(user: ChatUser & { tokenJti?: string }): Promise<void> {
+    if (!user.tokenJti) {
+      await this.redisService.del(this.getCurrentJtiKey(user.id));
+      return;
+    }
+
+    const currentJti = await this.redisService.get(this.getCurrentJtiKey(user.id));
+    if (currentJti === user.tokenJti) {
+      await this.redisService.del(this.getCurrentJtiKey(user.id));
+    }
   }
 }

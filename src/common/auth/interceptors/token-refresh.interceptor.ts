@@ -4,18 +4,19 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { Observable } from 'rxjs';
+import { AuthService } from '../services/auth.service';
 
 @Injectable()
 export class TokenRefreshInterceptor implements NestInterceptor {
-  constructor(private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly authService: AuthService,
   ) {}
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
     const ctx = context.switchToHttp();
     const request = ctx.getRequest<Request>();
     const response = ctx.getResponse();
@@ -33,7 +34,7 @@ export class TokenRefreshInterceptor implements NestInterceptor {
     const token = authHeader.substring(7);
     const decoded = this.jwtService.decode(token) as any;
 
-    if (!decoded?.exp) {
+    if (!decoded?.exp || !decoded?.jti) {
       return next.handle();
     }
 
@@ -43,18 +44,9 @@ export class TokenRefreshInterceptor implements NestInterceptor {
 
     if (timeUntilExpiry > 0 && timeUntilExpiry < refreshThreshold) {
       const user = request.user as any;
-      const newToken = this.jwtService.sign(
-        {
-          sub: user.id,
-          email: user.email,
-          username: user.username,
-        },
-        {
-          expiresIn: this.configService.get('jwt.expiresIn'),
-        },
-      );
+      const refreshedToken = await this.authService.refreshAccessToken(user, decoded.jti);
 
-      response.setHeader('Authorization', 'Bearer ' + newToken);
+      response.setHeader('Authorization', 'Bearer ' + refreshedToken.access_token);
       response.setHeader('Refresh-Token', 'true');
     }
 

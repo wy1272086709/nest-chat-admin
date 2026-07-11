@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_INTERCEPTOR, APP_FILTER, APP_GUARD, APP_PIPE, Reflector } from '@nestjs/core';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
-
 import commonConfig from '../config/common';
 import { BullModule } from '@nestjs/bull';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -17,6 +16,7 @@ import { JwtAuthGuard } from './common/auth/guards/jwt-auth.guard';
 import { MinioModule } from './minio/minio.module';
 import { NotificationModule } from './notification/notification.module';
 import { ChatModule } from './chat/chat.module';
+import { FavoriteModule } from './favorite/favorite.module';
 
 const suffix = process.env.NODE_ENV ?? 'development';
 
@@ -30,7 +30,6 @@ const suffix = process.env.NODE_ENV ?? 'development';
       envFilePath: [`.env.${suffix}`, '.env'],
       load: [commonConfig],
     }),
-
     // Redis队列
     BullModule.forRootAsync({
       imports: [ConfigModule],
@@ -61,6 +60,7 @@ const suffix = process.env.NODE_ENV ?? 'development';
     MinioModule,
     NotificationModule,
     ChatModule,
+    FavoriteModule,
   ],
   providers: [
     {

@@ -1,6 +1,6 @@
 import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { UserStatus } from '@/prisma/enum';
+import { UserStatus } from '@prisma/client';
 import { Match } from '@/common/validation/decorators/match.decorator';
 
 /**
@@ -137,6 +137,12 @@ export class SearchDto {
   @ApiProperty({ description: '搜索查询' })
   @IsNotEmpty({ message: '搜索查询不能为空' })
   query: string;
+}
+
+export class ChangeUserStatusDto {
+  @ApiProperty({ description: '用户状态', enum: UserStatus, example: UserStatus.BANNED })
+  @IsEnum(UserStatus, { message: '用户状态必须是 ACTIVE、INACTIVE 或 BANNED' })
+  status: UserStatus;
 }
 
 export class UserResponseDto {

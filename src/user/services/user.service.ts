@@ -1,8 +1,7 @@
 import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../../common/database/services/prisma.service';
 import * as bcrypt from 'bcryptjs';
-import { ChatUser } from '@prisma/client';
-import { UserStatus } from 'prisma/enum';
+import { ChatUser, UserStatus } from '@prisma/client';
 import { AddFriendDto, LoginDto } from '../dto/user.dto';
 
 @Injectable()
@@ -304,6 +303,17 @@ export class UserService {
         receiverId,
         targetId: receiverId,
         extra: addFriendDto.message ? { message: addFriendDto.message } : undefined,
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            username: true,
+            nickname: true,
+            email: true,
+            avatarUrl: true,
+          },
+        },
       },
     });
   }

@@ -47,6 +47,14 @@ enum MessageType {
   VIDEO
 }
 
+enum FavoriteType {
+  MESSAGE
+  IMAGE
+  VIDEO
+  FILE
+  CHAT_RECORD
+}
+
 // 通知类型
 enum NotificationType {
   FRIEND_REQUEST   // 好友申请
@@ -350,16 +358,38 @@ model ChatFriendship {
 
 // ===== 收藏系统 =====
 model Favorite {
-  id           String   @id @default(cuid())
-  targetType   String   // 收藏类型：message, user, group等
-  targetId     String   // 收藏目标ID
-  userId       String   // 用户ID
+  id           String       @id @default(cuid())
+  type         FavoriteType // 收藏类型：消息、图片、视频、文件、聊天记录
+  targetId     String       // 收藏目标ID：消息ID、文件ID、聊天记录ID等
+  userId       String       // 用户ID
 
-  createdAt    DateTime @default(now())
+  // 来源信息：用于前端直接展示「来自哪个群聊/联系人」
+  sourceType   String?      // 来源类型：chat、group、user 等
+  sourceId     String?      // 来源ID：roomId、userId 等
+  sourceName   String?      // 来源名称：群聊名称、联系人昵称等
+  roomId       String?      // 如果来源于聊天室，记录 roomId
 
-  user         ChatUser @relation(fields: [userId], references: [id])
+  // 展示快照：避免原消息/文件变动后收藏列表无法展示
+  title        String?
+  content      String?
+  fileUrl      String?
+  fileName     String?
+  fileSize     Int?
+  fileType     String?
+  thumbnailUrl String?
+  mediaWidth   Int?
+  mediaHeight  Int?
+  duration     Int?
+  extra        Json?
 
-  @@unique([userId, targetType, targetId]) // 防止重复收藏
-  @@index([userId, targetType])
+  collectedAt  DateTime     @default(now()) // 收藏发生时间，包含年月日时分秒
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user         ChatUser     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, type, targetId]) // 防止重复收藏
+  @@index([userId, type, collectedAt])
+  @@index([sourceType, sourceId])
   @@map("chat_favorites")
 }
