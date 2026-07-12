@@ -64,6 +64,28 @@ export class UserService {
     });
   }
 
+  /**
+   * 获取用户的公开资料（剥离 passwordHash 等敏感字段），供「好友资料」等对外接口使用。
+   * 注意：鉴权链路（auth.service.validatePayload / validateUserSession）仍依赖 findById
+   * 取完整 ChatUser（需要 status / passwordHash 等），故不能复用本方法。
+   */
+  async findPublicProfile(id: string): Promise<Partial<ChatUser> | null> {
+    return this.prisma.chatUser.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        username: true,
+        nickname: true,
+        email: true,
+        avatarUrl: true,
+        bio: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
   async findByEmail(email: string): Promise<ChatUser | null> {
     return this.prisma.chatUser.findFirst({
       where: {
@@ -340,6 +362,64 @@ export class UserService {
       const { passwordHash, ...safeFriend } = friend;
       return safeFriend;
     });
+  }
+
+  /**
+   * 删除好友：移除好友关系，并软移除（INACTIVE）当前用户在该私聊的成员关系，
+   * 让该私聊从会话列表消失。重新加好友时 getOrCreatePrivateRoom 会恢复成员状态。
+   */
+  async removeFriend(userId: string, friendId: string) {
+    if (userId === friendId) {
+      throw new HttpException('不能删除自己为好友', HttpStatus.BAD_REQUEST);
+    }
+
+    const friend = await this.prisma.chatUser.findUnique({
+      where: { id: friendId },
+      select: { id: true },
+    });
+    if (!friend) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const [userAId, userBId] = this.getFriendshipPair(userId, friendId);
+
+    // 1) 删除好友关系（记录可能已不存在，忽略 P2025）
+    try {
+      await this.prisma.chatFriendship.delete({
+        where: {
+          senderId_receiverId: {
+            senderId: userAId,
+            receiverId: userBId,
+          },
+        },
+      });
+    } catch (e) {
+      if ((e as { code?: string })?.code !== 'P2025') throw e;
+    }
+
+    // 2) 级联：软移除当前用户在该私聊的成员关系，使其从会话列表消失。
+    //    私聊房间名需与 ChatService.getPrivateRoomName 保持一致（排序后以 ':' 拼接）。
+    const privateRoomName = [userAId, userBId].sort().join(':');
+    const privateRoom = await this.prisma.chatRoom.findFirst({
+      where: { topic: 'PRIVATE', name: privateRoomName },
+      select: { id: true },
+    });
+    if (privateRoom) {
+      try {
+        await this.prisma.roomMember.update({
+          where: {
+            roomId_userId: {
+              roomId: privateRoom.id,
+              userId,
+            },
+          },
+          data: { status: 'INACTIVE' },
+        });
+      } catch (e) {
+        // 成员记录可能不存在（从未聊过天），忽略
+        if ((e as { code?: string })?.code !== 'P2025') throw e;
+      }
+    }
   }
 
   /**

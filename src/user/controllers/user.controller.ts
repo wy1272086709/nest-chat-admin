@@ -11,6 +11,7 @@ import {
   UpdateUserDto,
   SearchDto,
   ChangeUserStatusDto,
+  RemoveFriendDto,
 } from '../dto/user.dto';
 import { EmailService } from '@/common/core/services/email.service';
 import { RedisService } from '@/common/core/services/redis.service';
@@ -335,6 +336,32 @@ export class UserController {
     }
   }
 
+  // 删除好友：移除好友关系并让该私聊从双方会话列表消失
+  @Post('deleteFriend')
+  async deleteFriend(@CurrentUser() user: ChatUser, @Body() removeFriendDto: RemoveFriendDto) {
+    try {
+      await this.userService.removeFriend(user.id, removeFriendDto.friendId);
+      // 通知双方刷新会话/通讯录（前端 onAny 会捕获含 'friend' 的事件）
+      this.chatGateway.emitToUsers(
+        [user.id, removeFriendDto.friendId],
+        'friend:removed',
+        { userId: user.id, friendId: removeFriendDto.friendId },
+      );
+      return {
+        message: '已删除好友',
+        result: true,
+        data: null,
+      };
+    } catch (error) {
+      console.log(error);
+      return {
+        message: error.message || '删除好友失败',
+        result: false,
+        data: null,
+      };
+    }
+  }
+
   @Get('friends')
   async getFriends(@CurrentUser() user: ChatUser) {
     try {
@@ -400,7 +427,8 @@ export class UserController {
 
   // 动态参数路由放在最后，避免拦截 friends/groups 等静态路由。
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<ChatUser | null> {
-    return this.userService.findById(id);
+  async findById(@Param('id') id: string): Promise<Partial<ChatUser> | null> {
+    // 用 findPublicProfile 剥离 passwordHash，供「好友资料」等对外展示使用
+    return this.userService.findPublicProfile(id);
   }
 }

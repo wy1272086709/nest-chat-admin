@@ -4,7 +4,7 @@ import { ChatUser } from '@prisma/client';
 import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
-import { CreateGroupRoomDto, HistoryQueryDto, InitPrivateRoomDto } from './dto/chat.dto';
+import { AddMembersDto, CreateGroupRoomDto, HistoryQueryDto, InitPrivateRoomDto, SyncMessagesQueryDto } from './dto/chat.dto';
 
 /**
  * 聊天 HTTP 接口。
@@ -85,6 +85,26 @@ export class ChatController {
     }
   }
 
+  @Get('rooms/:roomId/messages/sync')
+  @ApiOperation({ description: '按消息游标增量同步聊天室消息（用于断线重连补齐）' })
+  async syncMessages(
+    @CurrentUser() user: ChatUser,
+    @Param('roomId') roomId: string,
+    @Query() query: SyncMessagesQueryDto,
+  ) {
+    try {
+      const data = await this.chatService.syncMessages(user.id, {
+        roomId,
+        afterMessageId: query.afterMessageId,
+        take: query.take,
+      });
+      return { message: '消息同步成功', result: true, data };
+    } catch (error) {
+      console.log(error);
+      return { message: error.message || '消息同步失败', result: false, data: null };
+    }
+  }
+
   @Get('rooms/:roomId/members')
   @ApiOperation({ description: '获取某个聊天室的成员列表' })
   async getRoomMembers(@CurrentUser() user: ChatUser, @Param('roomId') roomId: string) {
@@ -123,6 +143,63 @@ export class ChatController {
     } catch (error) {
       console.log(error);
       return { message: error.message || '聊天记录清空失败', result: false, data: null };
+    }
+  }
+
+  @Post('rooms/:roomId/leave')
+  @ApiOperation({ description: '退出群聊（群主退出自动转让群主，最后一人退出则归档房间）' })
+  async leaveRoom(@CurrentUser() user: ChatUser, @Param('roomId') roomId: string) {
+    try {
+      const result = await this.chatService.leaveRoom(user.id, roomId);
+      // 通知剩余成员：有成员离开 / 群主变更，前端刷新会话列表与成员数
+      this.chatGateway.emitToUsers(result.remainingMemberIds, 'member:left', {
+        roomId,
+        userId: user.id,
+        newOwnerId: result.newOwnerId,
+        disbanded: result.disbanded,
+      });
+      // 通知离开者本人：前端清理本地会话（乐观移除的兜底）
+      this.chatGateway.emitToUser(user.id, 'room:left', { roomId });
+      return {
+        message: result.disbanded ? '群聊已解散' : '已退出群聊',
+        result: true,
+        data: result,
+      };
+    } catch (error) {
+      console.log(error);
+      return { message: error.message || '退出群聊失败', result: false, data: null };
+    }
+  }
+
+  @Post('rooms/:roomId/members')
+  @ApiOperation({ description: '邀请好友加入群聊（直接加成员，并实时通知新成员与既有成员）' })
+  async addMembers(
+    @CurrentUser() user: ChatUser,
+    @Param('roomId') roomId: string,
+    @Body() dto: AddMembersDto,
+  ) {
+    try {
+      const { room, addedMemberIds } = await this.chatService.addMembers(
+        user.id,
+        roomId,
+        dto.memberIds,
+      );
+      if (room) {
+        // 新成员：复用 room:created 让其会话列表出现该群（前端已有监听）
+        this.chatGateway.emitToUsers(addedMemberIds, 'room:created', room);
+        // 既有成员（含邀请者）：成员数变更，刷新会话列表
+        const existingIds = room.members
+          .filter((m) => m.status === 'ACTIVE' && !addedMemberIds.includes(m.userId))
+          .map((m) => m.userId);
+        this.chatGateway.emitToUsers(existingIds, 'member:joined', {
+          roomId,
+          userIds: addedMemberIds,
+        });
+      }
+      return { message: '成员邀请成功', result: true, data: { addedMemberIds } };
+    } catch (error) {
+      console.log(error);
+      return { message: error.message || '邀请成员失败', result: false, data: null };
     }
   }
 }

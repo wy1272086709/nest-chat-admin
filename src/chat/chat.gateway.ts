@@ -12,7 +12,15 @@ import { Server, Socket } from 'socket.io';
 import { AuthService } from '@/common/auth/services/auth.service';
 import { WsTokenRefreshInterceptor } from '@/common/auth/interceptors/ws-token-refresh.interceptor';
 import { ChatService } from './chat.service';
-import { CreateGroupRoomDto, GetMessagesDto, RoomIdDto, SendPrivateMessageDto, SendRoomMessageDto } from './dto/chat.dto';
+import {
+  CreateGroupRoomDto,
+  DeliveredMessageDto,
+  GetMessagesDto,
+  RoomIdDto,
+  SendPrivateMessageDto,
+  SendRoomMessageDto,
+  SyncMessagesDto,
+} from './dto/chat.dto';
 
 type AuthenticatedSocket = Socket & {
   data: {
@@ -104,13 +112,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async sendRoomMessage(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SendRoomMessageDto) {
     try {
       const userId = this.getUserId(client);
-      const message = await this.chatService.sendRoomMessage(userId, body);
-      this.server.to(`room:${body.roomId}`).emit('message:new', message);
+      const result = await this.chatService.sendRoomMessage(userId, body);
+      if (!result.isDuplicate) {
+        this.server.to(`room:${body.roomId}`).emit('message:new', result.message);
+      }
       // 仍以事件形式回推 message:sent（保持「刷新会话列表」等已有行为，未升级客户端不受影响）
-      client.emit('message:sent', message);
+      client.emit('message:sent', result.message);
       // 返回普通对象 → socket.io ack：发送方若用 socket.emit(event, payload, cb) 发送，
       // cb 会收到 { result, data }，用于在客户端精确确认这一条消息的投递结果（替代以前的「发后即忘」）
-      return { result: true, data: message };
+      return { result: true, data: result.message };
     } catch (error) {
       return { result: false, message: error?.message || '发送失败' };
     }
@@ -131,7 +141,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const member of result.room.members) {
         this.server.to(`user:${member.userId}`).emit('room:private', result.room);
       }
-      this.server.to(`user:${body.receiverId}`).emit('message:new', result.message);
+      if (!result.isDuplicate) {
+        this.server.to(`user:${body.receiverId}`).emit('message:new', result.message);
+      }
       client.emit('message:sent', result);
       // 返回 ack：cb 收到 { result, data }，data 为落库后的 message（含服务端 id）
       return { result: true, data: result.message };
@@ -145,6 +157,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = this.getUserId(client);
     const messages = await this.chatService.getMessages(userId, body);
     return { event: 'message:list', data: messages };
+  }
+
+  @SubscribeMessage('message:sync')
+  async syncMessages(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SyncMessagesDto) {
+    try {
+      const userId = this.getUserId(client);
+      const data = await this.chatService.syncMessages(userId, body);
+      return { result: true, event: 'message:sync', data };
+    } catch (error) {
+      return { result: false, message: error?.message || '消息同步失败' };
+    }
+  }
+
+  @SubscribeMessage('message:delivered')
+  async markMessageDelivered(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: DeliveredMessageDto) {
+    try {
+      const userId = this.getUserId(client);
+      const data = await this.chatService.markMessageDelivered(userId, body);
+      return { result: true, event: 'message:delivered', data };
+    } catch (error) {
+      return { result: false, message: error?.message || '消息送达确认失败' };
+    }
   }
 
   @SubscribeMessage('room:read')

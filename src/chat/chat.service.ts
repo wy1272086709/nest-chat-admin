@@ -1,7 +1,39 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { MessageType, Prisma } from '@prisma/client';
 import { PrismaService } from '@/common/database/services/prisma.service';
-import { CreateGroupRoomDto, GetMessagesDto, SendPrivateMessageDto, SendRoomMessageDto } from './dto/chat.dto';
+import {
+  CreateGroupRoomDto,
+  DeliveredMessageDto,
+  GetMessagesDto,
+  SendPrivateMessageDto,
+  SendRoomMessageDto,
+  SyncMessagesDto,
+} from './dto/chat.dto';
+
+const messageInclude = {
+  sender: {
+    select: {
+      id: true,
+      username: true,
+      nickname: true,
+      avatarUrl: true,
+    },
+  },
+  room: {
+    select: {
+      id: true,
+      name: true,
+      topic: true,
+    },
+  },
+} satisfies Prisma.MessageInclude;
+
+type ChatMessagePayload = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
+
+type SendMessageResult = {
+  message: ChatMessagePayload;
+  isDuplicate: boolean;
+};
 
 @Injectable()
 export class ChatService {
@@ -77,6 +109,15 @@ export class ChatService {
     });
 
     if (existingRoom) {
+      // 恢复双方成员状态：删除好友会把发起方在该私聊置为 INACTIVE，
+      // 重新发起私聊时需重新激活，否则 assertRoomMember 会在发消息时抛 403。
+      await this.prisma.roomMember.updateMany({
+        where: {
+          roomId: existingRoom.id,
+          userId: { in: [senderId, receiverId] },
+        },
+        data: { status: 'ACTIVE' },
+      });
       return existingRoom;
     }
 
@@ -119,50 +160,71 @@ export class ChatService {
     return members.map((member) => member.userId);
   }
 
-  async sendRoomMessage(senderId: string, dto: SendRoomMessageDto) {
+  async sendRoomMessage(senderId: string, dto: SendRoomMessageDto): Promise<SendMessageResult> {
     await this.assertRoomMember(dto.roomId, senderId);
 
-    return this.prisma.message.create({
-      data: {
-        roomId: dto.roomId,
-        senderId,
-        content: dto.content,
-        messageType: dto.messageType ?? MessageType.TEXT,
-        fileUrl: dto.fileUrl,
-        fileName: dto.fileName,
-        fileSize: dto.fileSize,
-        fileType: dto.fileType,
-        thumbnailUrl: dto.thumbnailUrl,
-        mediaWidth: dto.mediaWidth,
-        mediaHeight: dto.mediaHeight,
-        duration: dto.duration,
-      },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            username: true,
-            nickname: true,
-            avatarUrl: true,
-          },
+    const existingMessage = await this.findIdempotentMessage(senderId, dto.clientMessageId);
+    if (existingMessage) {
+      if (existingMessage.roomId !== dto.roomId) {
+        throw new ConflictException('客户端消息ID已被用于其他会话');
+      }
+
+      return {
+        message: existingMessage,
+        isDuplicate: true,
+      };
+    }
+
+    try {
+      const message = await this.prisma.message.create({
+        data: {
+          roomId: dto.roomId,
+          senderId,
+          clientMessageId: dto.clientMessageId,
+          content: dto.content,
+          messageType: dto.messageType ?? MessageType.TEXT,
+          fileUrl: dto.fileUrl,
+          fileName: dto.fileName,
+          fileSize: dto.fileSize,
+          fileType: dto.fileType,
+          thumbnailUrl: dto.thumbnailUrl,
+          mediaWidth: dto.mediaWidth,
+          mediaHeight: dto.mediaHeight,
+          duration: dto.duration,
         },
-        room: {
-          select: {
-            id: true,
-            name: true,
-            topic: true,
-          },
-        },
-      },
-    });
+        include: messageInclude,
+      });
+
+      return {
+        message,
+        isDuplicate: false,
+      };
+    } catch (error) {
+      if (
+        dto.clientMessageId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const retryMessage = await this.findIdempotentMessage(senderId, dto.clientMessageId);
+        if (retryMessage) {
+          return {
+            message: retryMessage,
+            isDuplicate: true,
+          };
+        }
+      }
+
+      throw error;
+    }
   }
 
   async sendPrivateMessage(senderId: string, dto: SendPrivateMessageDto) {
     const room = await this.getOrCreatePrivateRoom(senderId, dto.receiverId);
     // 与群聊一致：透传全部媒体字段（缩略图/宽高/时长），避免私聊图片/文件消息丢失元数据
-    const message = await this.sendRoomMessage(senderId, {
+    const sendResult = await this.sendRoomMessage(senderId, {
       roomId: room.id,
       content: dto.content,
+      clientMessageId: dto.clientMessageId,
       messageType: dto.messageType,
       fileUrl: dto.fileUrl,
       fileName: dto.fileName,
@@ -176,7 +238,8 @@ export class ChatService {
 
     return {
       room,
-      message,
+      message: sendResult.message,
+      isDuplicate: sendResult.isDuplicate,
     };
   }
 
@@ -215,6 +278,109 @@ export class ChatService {
     });
   }
 
+  async syncMessages(userId: string, dto: SyncMessagesDto) {
+    await this.assertRoomMember(dto.roomId, userId);
+
+    const take = dto.take ?? 50;
+    let messages: ChatMessagePayload[];
+
+    if (dto.afterMessageId) {
+      const cursorMessage = await this.prisma.message.findFirst({
+        where: {
+          id: dto.afterMessageId,
+          roomId: dto.roomId,
+          isDeleted: false,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!cursorMessage) {
+        throw new NotFoundException('同步游标消息不存在');
+      }
+
+      messages = await this.prisma.message.findMany({
+        where: {
+          roomId: dto.roomId,
+          isDeleted: false,
+        },
+        cursor: {
+          id: dto.afterMessageId,
+        },
+        skip: 1,
+        orderBy: [
+          {
+            createdAt: 'asc',
+          },
+          {
+            id: 'asc',
+          },
+        ],
+        take,
+        include: messageInclude,
+      });
+    } else {
+      const recentMessages = await this.prisma.message.findMany({
+        where: {
+          roomId: dto.roomId,
+          isDeleted: false,
+        },
+        orderBy: [
+          {
+            createdAt: 'desc',
+          },
+          {
+            id: 'desc',
+          },
+        ],
+        take,
+        include: messageInclude,
+      });
+
+      messages = recentMessages.reverse();
+    }
+
+    const lastMessage = messages[messages.length - 1] ?? null;
+    if (lastMessage) {
+      await this.upsertDeliveredState(userId, dto.roomId, lastMessage.id, lastMessage.createdAt);
+    }
+
+    return {
+      messages,
+      nextCursor: lastMessage
+        ? {
+            messageId: lastMessage.id,
+            createdAt: lastMessage.createdAt,
+          }
+        : null,
+      hasMore: messages.length === take,
+    };
+  }
+
+  async markMessageDelivered(userId: string, dto: DeliveredMessageDto) {
+    await this.assertRoomMember(dto.roomId, userId);
+
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: dto.messageId,
+        roomId: dto.roomId,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        roomId: true,
+        createdAt: true,
+      },
+    });
+
+    if (!message) {
+      throw new NotFoundException('消息不存在');
+    }
+
+    return this.upsertDeliveredState(userId, dto.roomId, message.id, message.createdAt);
+  }
+
   async markRoomRead(userId: string, roomId: string) {
     await this.assertRoomMember(roomId, userId);
 
@@ -249,6 +415,118 @@ export class ChatService {
         clearedAt: new Date(),
       },
     });
+  }
+
+  /**
+   * 退出群聊。
+   * - 软移除自己（成员状态置 INACTIVE），保留历史消息与成员记录，便于日后重新加入。
+   * - 群主退出：自动把群主转让给「最早加入」的剩余 ACTIVE 成员，避免群聊无主。
+   * - 最后一名成员退出：归档房间（isArchived = true），等价于解散。
+   * 返回结果供 Controller 推送实时事件（member:left / room:left）。
+   */
+  async leaveRoom(userId: string, roomId: string) {
+    // 校验调用者仍是该室 ACTIVE 成员（同时拿到其角色，用于判断是否需要转让群主）
+    const member = await this.assertRoomMember(roomId, userId);
+
+    const room = await this.prisma.chatRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, topic: true },
+    });
+    if (!room) {
+      throw new NotFoundException('房间不存在');
+    }
+
+    // 软移除自己：与删除好友一致采用 INACTIVE，保留关系记录与历史
+    await this.prisma.roomMember.update({
+      where: { roomId_userId: { roomId, userId } },
+      data: { status: 'INACTIVE' },
+    });
+
+    // 剩余 ACTIVE 成员（按加入时间升序，用于群主转让）
+    const remaining = await this.prisma.roomMember.findMany({
+      where: { roomId, status: 'ACTIVE' },
+      orderBy: { joinedAt: 'asc' },
+      select: { userId: true },
+    });
+    const remainingMemberIds = remaining.map((m) => m.userId);
+
+    let newOwnerId: string | null = null;
+    let disbanded = false;
+
+    if (remainingMemberIds.length === 0) {
+      // 无人剩留：归档房间（软解散）
+      await this.prisma.chatRoom.update({
+        where: { id: roomId },
+        data: { isArchived: true },
+      });
+      disbanded = true;
+    } else if (member.role === 'OWNER') {
+      // 群主退出：转让给最早加入的剩余成员
+      newOwnerId = remainingMemberIds[0];
+      await this.prisma.$transaction([
+        this.prisma.roomMember.update({
+          where: { roomId_userId: { roomId, userId: newOwnerId } },
+          data: { role: 'OWNER' },
+        }),
+        this.prisma.chatRoom.update({
+          where: { id: roomId },
+          data: { ownerId: newOwnerId },
+        }),
+      ]);
+    }
+
+    return {
+      roomId,
+      userId,
+      disbanded,
+      newOwnerId,
+      remainingMemberIds,
+    };
+  }
+
+  /**
+   * 邀请成员加入群聊（直接加，与建群一致不走邀请确认流程）。
+   * - 校验邀请者仍是该室 ACTIVE 成员。
+   * - 对每个被邀请者 upsert 成员记录：新成员创建为 MEMBER/ACTIVE；
+   *   曾退出（INACTIVE）的成员重新激活，保留历史消息。
+   * 返回最新房间（含成员）与本次新增/激活的用户 ID，供 Controller 推送实时事件。
+   */
+  async addMembers(inviterId: string, roomId: string, memberIds: string[]) {
+    await this.assertRoomMember(roomId, inviterId);
+
+    const room = await this.prisma.chatRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true },
+    });
+    if (!room) {
+      throw new NotFoundException('房间不存在');
+    }
+
+    // 去重 + 排除邀请者自己
+    const targets = Array.from(new Set(memberIds)).filter((id) => id && id !== inviterId);
+
+    if (targets.length > 0) {
+      await Promise.all(
+        targets.map((userId) =>
+          this.prisma.roomMember.upsert({
+            where: { roomId_userId: { roomId, userId } },
+            create: { roomId, userId, role: 'MEMBER', status: 'ACTIVE' },
+            update: { status: 'ACTIVE' },
+          }),
+        ),
+      );
+    }
+
+    // 返回最新房间（含成员关系），供 Controller 推送给新成员刷新会话列表
+    const updated = await this.prisma.chatRoom.findUnique({
+      where: { id: roomId },
+      include: { members: true },
+    });
+
+    return {
+      room: updated,
+      addedMemberIds: targets,
+    };
   }
 
   /**
@@ -342,6 +620,64 @@ export class ChatService {
         },
       },
       orderBy: { joinedAt: 'asc' },
+    });
+  }
+
+  private async findIdempotentMessage(senderId: string, clientMessageId?: string) {
+    if (!clientMessageId) {
+      return null;
+    }
+
+    return this.prisma.message.findUnique({
+      where: {
+        senderId_clientMessageId: {
+          senderId,
+          clientMessageId,
+        },
+      },
+      include: messageInclude,
+    });
+  }
+
+  private async upsertDeliveredState(userId: string, roomId: string, messageId: string, deliveredAt: Date) {
+    const existingState = await this.prisma.messageSyncState.findUnique({
+      where: {
+        roomId_userId: {
+          roomId,
+          userId,
+        },
+      },
+    });
+
+    if (existingState?.lastDeliveredAt && existingState.lastDeliveredAt.getTime() > deliveredAt.getTime()) {
+      return existingState;
+    }
+
+    if (
+      existingState?.lastDeliveredAt &&
+      existingState.lastDeliveredAt.getTime() === deliveredAt.getTime() &&
+      existingState.lastDeliveredId === messageId
+    ) {
+      return existingState;
+    }
+
+    return this.prisma.messageSyncState.upsert({
+      where: {
+        roomId_userId: {
+          roomId,
+          userId,
+        },
+      },
+      create: {
+        roomId,
+        userId,
+        lastDeliveredId: messageId,
+        lastDeliveredAt: deliveredAt,
+      },
+      update: {
+        lastDeliveredId: messageId,
+        lastDeliveredAt: deliveredAt,
+      },
     });
   }
 }

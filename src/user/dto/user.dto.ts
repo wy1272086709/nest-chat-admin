@@ -173,3 +173,10 @@ export class AddFriendDto {
   @IsString({ message: '好友申请备注必须是字符串' })
   message?: string;
 }
+
+export class RemoveFriendDto {
+  @ApiProperty({ description: '要删除的好友用户ID' })
+  @IsNotEmpty({ message: '好友ID不能为空' })
+  @IsString({ message: '好友ID必须是字符串' })
+  friendId: string;
+}

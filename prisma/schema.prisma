@@ -92,6 +92,7 @@ model ChatUser {
   uploadedFiles   FileStorage[]
   articles        Article[]  // 用户发表的文章
   chatClearStates ChatClearState[]
+  messageSyncStates MessageSyncState[]
 
   // 通知和收藏关系
   receivedNotifications Notification[] @relation("NotificationReceiver")
@@ -215,6 +216,7 @@ model ChatRoom {
   messages      Message[]
   members       RoomMember[]
   clearStates   ChatClearState[]
+  messageSyncStates MessageSyncState[]
 
   // 管理员字段
   isArchived    Boolean      @default(false)  // 是否已归档
@@ -243,6 +245,7 @@ model Message {
   id           String      @id @default(cuid())
   roomId       String
   senderId     String
+  clientMessageId String?  // 客户端生成的消息ID，用于断线重试幂等
   content      String?
   messageType  MessageType  @default(TEXT)
   // 文件分享字段
@@ -270,6 +273,7 @@ model Message {
 
   @@index([roomId, createdAt])
   @@index([senderId, createdAt])
+  @@unique([senderId, clientMessageId])
   @@map("chat_messages")
 }
 
@@ -285,6 +289,23 @@ model ChatClearState {
   @@unique([roomId, userId])
   @@index([userId, clearedAt])
   @@map("chat_clear_states")
+}
+
+model MessageSyncState {
+  id              String   @id @default(cuid())
+  roomId          String
+  userId          String
+  lastDeliveredId String?
+  lastDeliveredAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  room            ChatRoom @relation(fields: [roomId], references: [id])
+  user            ChatUser @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, userId])
+  @@index([userId, updatedAt])
+  @@map("message_sync_states")
 }
 
 // 消息搜索索引（性能优化）

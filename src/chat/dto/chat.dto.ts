@@ -17,6 +17,14 @@ export class CreateGroupRoomDto {
   memberIds?: string[];
 }
 
+/** 邀请成员加入已有群聊 */
+export class AddMembersDto {
+  @IsArray({ message: '成员ID列表必须是数组' })
+  @IsString({ each: true, message: '成员ID必须是字符串' })
+  @IsNotEmpty({ each: true, message: '成员ID不能为空' })
+  memberIds: string[];
+}
+
 /**
  * 消息内容通用校验（文本 / 图片 / 文件 / 音视频）。
  * - 文本类（TEXT 或不传）：content 必填
@@ -24,6 +32,10 @@ export class CreateGroupRoomDto {
  * 通过 ValidateIf 按 messageType 动态决定哪些字段必填，避免出现「空文本」或「无地址的图片」。
  */
 export abstract class MessageContentDto {
+  @IsOptional()
+  @IsString({ message: '客户端消息ID必须是字符串' })
+  clientMessageId?: string;
+
   @IsOptional()
   @IsEnum(MessageType, { message: '消息类型不合法' })
   messageType?: MessageType;
@@ -116,4 +128,29 @@ export class HistoryQueryDto {
   @Min(1)
   @Max(100)
   take?: number;
+}
+
+export class SyncMessagesQueryDto extends HistoryQueryDto {
+  @IsOptional()
+  @IsString({ message: '游标消息ID必须是字符串' })
+  afterMessageId?: string;
+}
+
+export class SyncMessagesDto extends RoomIdDto {
+  @IsOptional()
+  @IsString({ message: '游标消息ID必须是字符串' })
+  afterMessageId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '分页大小必须是整数' })
+  @Min(1)
+  @Max(100)
+  take?: number;
+}
+
+export class DeliveredMessageDto extends RoomIdDto {
+  @IsNotEmpty({ message: '消息ID不能为空' })
+  @IsString({ message: '消息ID必须是字符串' })
+  messageId: string;
 }

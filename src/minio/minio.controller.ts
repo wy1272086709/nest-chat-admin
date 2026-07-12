@@ -47,7 +47,11 @@ export class MinioController {
       };
     } catch (error) {
       console.error('Error generating preview URL:', error);
-      throw error;
+      return {
+        message: '预览URL生成失败',
+        result: false,
+        data: null,
+      };
     }
   }
 }
