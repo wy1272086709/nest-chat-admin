@@ -1,4 +1,9 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { MessageType, Prisma } from '@prisma/client';
 import { PrismaService } from '@/common/database/services/prisma.service';
 import {
@@ -17,6 +22,8 @@ const messageInclude = {
       username: true,
       nickname: true,
       avatarUrl: true,
+      lastLoginAt: true,
+      lastSeenAt: true,
     },
   },
   room: {
@@ -28,7 +35,9 @@ const messageInclude = {
   },
 } satisfies Prisma.MessageInclude;
 
-type ChatMessagePayload = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
+type ChatMessagePayload = Prisma.MessageGetPayload<{
+  include: typeof messageInclude;
+}>;
 
 type SendMessageResult = {
   message: ChatMessagePayload;
@@ -41,6 +50,13 @@ export class ChatService {
 
   private getPrivateRoomName(userAId: string, userBId: string) {
     return [userAId, userBId].sort().join(':');
+  }
+
+  async updateUserLastSeen(userId: string, lastSeenAt = new Date()) {
+    await this.prisma.chatUser.update({
+      where: { id: userId },
+      data: { lastSeenAt },
+    });
   }
 
   async assertRoomMember(roomId: string, userId: string) {
@@ -160,10 +176,16 @@ export class ChatService {
     return members.map((member) => member.userId);
   }
 
-  async sendRoomMessage(senderId: string, dto: SendRoomMessageDto): Promise<SendMessageResult> {
+  async sendRoomMessage(
+    senderId: string,
+    dto: SendRoomMessageDto,
+  ): Promise<SendMessageResult> {
     await this.assertRoomMember(dto.roomId, senderId);
 
-    const existingMessage = await this.findIdempotentMessage(senderId, dto.clientMessageId);
+    const existingMessage = await this.findIdempotentMessage(
+      senderId,
+      dto.clientMessageId,
+    );
     if (existingMessage) {
       if (existingMessage.roomId !== dto.roomId) {
         throw new ConflictException('客户端消息ID已被用于其他会话');
@@ -205,7 +227,10 @@ export class ChatService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        const retryMessage = await this.findIdempotentMessage(senderId, dto.clientMessageId);
+        const retryMessage = await this.findIdempotentMessage(
+          senderId,
+          dto.clientMessageId,
+        );
         if (retryMessage) {
           return {
             message: retryMessage,
@@ -343,7 +368,12 @@ export class ChatService {
 
     const lastMessage = messages[messages.length - 1] ?? null;
     if (lastMessage) {
-      await this.upsertDeliveredState(userId, dto.roomId, lastMessage.id, lastMessage.createdAt);
+      await this.upsertDeliveredState(
+        userId,
+        dto.roomId,
+        lastMessage.id,
+        lastMessage.createdAt,
+      );
     }
 
     return {
@@ -378,7 +408,12 @@ export class ChatService {
       throw new NotFoundException('消息不存在');
     }
 
-    return this.upsertDeliveredState(userId, dto.roomId, message.id, message.createdAt);
+    return this.upsertDeliveredState(
+      userId,
+      dto.roomId,
+      message.id,
+      message.createdAt,
+    );
   }
 
   async markRoomRead(userId: string, roomId: string) {
@@ -503,7 +538,9 @@ export class ChatService {
     }
 
     // 去重 + 排除邀请者自己
-    const targets = Array.from(new Set(memberIds)).filter((id) => id && id !== inviterId);
+    const targets = Array.from(new Set(memberIds)).filter(
+      (id) => id && id !== inviterId,
+    );
 
     if (targets.length > 0) {
       await Promise.all(
@@ -545,7 +582,14 @@ export class ChatService {
               where: { status: 'ACTIVE' },
               include: {
                 user: {
-                  select: { id: true, username: true, nickname: true, avatarUrl: true },
+                  select: {
+                    id: true,
+                    username: true,
+                    nickname: true,
+                    avatarUrl: true,
+                    lastLoginAt: true,
+                    lastSeenAt: true,
+                  },
                 },
               },
             },
@@ -564,9 +608,12 @@ export class ChatService {
         // 未读阈值：取「上次已读时间」与「清空时间」中较晚者，
         // 只有晚于该阈值、且不是自己发的、未删除的消息才算未读。
         const thresholds: number[] = [];
-        if (membership.lastReadAt) thresholds.push(membership.lastReadAt.getTime());
+        if (membership.lastReadAt)
+          thresholds.push(membership.lastReadAt.getTime());
         if (clearState) thresholds.push(clearState.clearedAt.getTime());
-        const unreadSince = thresholds.length ? new Date(Math.max(...thresholds)) : null;
+        const unreadSince = thresholds.length
+          ? new Date(Math.max(...thresholds))
+          : null;
 
         const unreadWhere: Prisma.MessageWhereInput = {
           roomId: membership.roomId,
@@ -587,7 +634,14 @@ export class ChatService {
             orderBy: { createdAt: 'desc' },
             include: {
               sender: {
-                select: { id: true, username: true, nickname: true, avatarUrl: true },
+                select: {
+                  id: true,
+                  username: true,
+                  nickname: true,
+                  avatarUrl: true,
+                  lastLoginAt: true,
+                  lastSeenAt: true,
+                },
               },
             },
           }),
@@ -616,14 +670,24 @@ export class ChatService {
       where: { roomId, status: 'ACTIVE' },
       include: {
         user: {
-          select: { id: true, username: true, nickname: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            nickname: true,
+            avatarUrl: true,
+            lastLoginAt: true,
+            lastSeenAt: true,
+          },
         },
       },
       orderBy: { joinedAt: 'asc' },
     });
   }
 
-  private async findIdempotentMessage(senderId: string, clientMessageId?: string) {
+  private async findIdempotentMessage(
+    senderId: string,
+    clientMessageId?: string,
+  ) {
     if (!clientMessageId) {
       return null;
     }
@@ -639,7 +703,12 @@ export class ChatService {
     });
   }
 
-  private async upsertDeliveredState(userId: string, roomId: string, messageId: string, deliveredAt: Date) {
+  private async upsertDeliveredState(
+    userId: string,
+    roomId: string,
+    messageId: string,
+    deliveredAt: Date,
+  ) {
     const existingState = await this.prisma.messageSyncState.findUnique({
       where: {
         roomId_userId: {
@@ -649,7 +718,10 @@ export class ChatService {
       },
     });
 
-    if (existingState?.lastDeliveredAt && existingState.lastDeliveredAt.getTime() > deliveredAt.getTime()) {
+    if (
+      existingState?.lastDeliveredAt &&
+      existingState.lastDeliveredAt.getTime() > deliveredAt.getTime()
+    ) {
       return existingState;
     }
 

@@ -1,4 +1,10 @@
-import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/database/services/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { ChatUser, UserStatus } from '@prisma/client';
@@ -12,15 +18,17 @@ export class UserService {
     return [userId, friendId].sort() as [string, string];
   }
 
-  async create(userData: Partial<ChatUser> & { password: string }): Promise<Pick<ChatUser, 'username' | 'email' | 'nickname'>> {
+  async create(
+    userData: Partial<ChatUser> & { password: string },
+  ): Promise<Pick<ChatUser, 'username' | 'email' | 'nickname'>> {
     // 检查邮箱是否已存在（大小写不敏感）
     const existingUser = await this.prisma.chatUser.findFirst({
       where: {
         email: {
           equals: userData.email!,
-          mode: 'insensitive'
-        }
-      }
+          mode: 'insensitive',
+        },
+      },
     });
     if (existingUser) {
       throw new HttpException('邮箱已存在！', HttpStatus.BAD_REQUEST);
@@ -31,9 +39,9 @@ export class UserService {
       where: {
         username: {
           equals: userData.username!,
-          mode: 'insensitive'
-        }
-      }
+          mode: 'insensitive',
+        },
+      },
     });
     if (existingUsername) {
       throw new HttpException('用户名已存在！', HttpStatus.BAD_REQUEST);
@@ -80,6 +88,7 @@ export class UserService {
         avatarUrl: true,
         bio: true,
         lastLoginAt: true,
+        lastSeenAt: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -91,8 +100,8 @@ export class UserService {
       where: {
         email: {
           equals: email,
-          mode: 'insensitive'
-        }
+          mode: 'insensitive',
+        },
       },
     });
   }
@@ -102,15 +111,17 @@ export class UserService {
       where: {
         username: {
           equals: username,
-          mode: 'insensitive'
-        }
+          mode: 'insensitive',
+        },
       },
     });
   }
 
   async update(id: string, userData: Partial<ChatUser>): Promise<ChatUser> {
     // 检查用户是否存在
-    const existingUser = await this.prisma.chatUser.findUnique({ where: { id } });
+    const existingUser = await this.prisma.chatUser.findUnique({
+      where: { id },
+    });
     if (!existingUser) {
       throw new NotFoundException('ChatUser not found');
     }
@@ -123,37 +134,51 @@ export class UserService {
 
   async delete(id: string): Promise<void> {
     // 检查用户是否存在
-    const existingUser = await this.prisma.chatUser.findUnique({ where: { id } });
+    const existingUser = await this.prisma.chatUser.findUnique({
+      where: { id },
+    });
     if (!existingUser) {
       throw new NotFoundException('ChatUser not found');
     }
 
     await this.prisma.chatUser.delete({
-      where: { id }
+      where: { id },
     });
   }
 
   async findAll(): Promise<ChatUser[]> {
     return this.prisma.chatUser.findMany({
       orderBy: {
-        createdAt: 'desc'
-      }
+        createdAt: 'desc',
+      },
     });
   }
 
   async updateLastLogin(id: string): Promise<void> {
+    const now = new Date();
     await this.prisma.chatUser.update({
       where: { id },
       data: {
-        lastLoginAt: new Date()
-      }
+        lastLoginAt: now,
+        lastSeenAt: now,
+      },
+    });
+  }
+
+  async updateLastSeen(id: string, lastSeenAt = new Date()): Promise<void> {
+    await this.prisma.chatUser.update({
+      where: { id },
+      data: { lastSeenAt },
     });
   }
 
   /**
    * 精确搜索用户 - 按用户名或邮箱精确匹配，排除自己和已有好友
    */
-  async searchUsers(query: string, currentUserId?: string): Promise<ChatUser | null> {
+  async searchUsers(
+    query: string,
+    currentUserId?: string,
+  ): Promise<ChatUser | null> {
     const user = await this.prisma.chatUser.findFirst({
       where: {
         id: currentUserId ? { not: currentUserId } : undefined,
@@ -161,16 +186,16 @@ export class UserService {
           {
             username: {
               equals: query,
-              mode: 'insensitive'
-            }
+              mode: 'insensitive',
+            },
           },
           {
             email: {
               equals: query,
-              mode: 'insensitive'
-            }
-          }
-        ]
+              mode: 'insensitive',
+            },
+          },
+        ],
       },
     });
 
@@ -178,7 +203,10 @@ export class UserService {
       return user;
     }
 
-    const [senderId, receiverId] = this.getFriendshipPair(currentUserId, user.id);
+    const [senderId, receiverId] = this.getFriendshipPair(
+      currentUserId,
+      user.id,
+    );
     const existingFriendship = await this.prisma.chatFriendship.findUnique({
       where: {
         senderId_receiverId: {
@@ -201,32 +229,34 @@ export class UserService {
           {
             username: {
               contains: query,
-              mode: 'insensitive'
-            }
+              mode: 'insensitive',
+            },
           },
           {
             email: {
               contains: query,
-              mode: 'insensitive'
-            }
+              mode: 'insensitive',
+            },
           },
           {
             nickname: {
               contains: query,
-              mode: 'insensitive'
-            }
-          }
-        ]
+              mode: 'insensitive',
+            },
+          },
+        ],
       },
       orderBy: {
-        createdAt: 'desc'
-      }
+        createdAt: 'desc',
+      },
     });
   }
 
   async changeStatus(id: string, status: UserStatus): Promise<ChatUser> {
     // 检查用户是否存在
-    const existingUser = await this.prisma.chatUser.findUnique({ where: { id } });
+    const existingUser = await this.prisma.chatUser.findUnique({
+      where: { id },
+    });
     if (!existingUser) {
       throw new NotFoundException('ChatUser not found');
     }
@@ -245,17 +275,17 @@ export class UserService {
           {
             email: {
               equals: loginDto.account,
-              mode: 'insensitive'
-            }
+              mode: 'insensitive',
+            },
           },
           {
             username: {
               equals: loginDto.account,
-              mode: 'insensitive'
-            }
-          }
-        ]
-      }
+              mode: 'insensitive',
+            },
+          },
+        ],
+      },
     });
 
     if (!existingUser) {
@@ -263,7 +293,10 @@ export class UserService {
     }
 
     // 检查密码是否匹配
-    const passwordMatch = await bcrypt.compare(loginDto.password, existingUser.passwordHash);
+    const passwordMatch = await bcrypt.compare(
+      loginDto.password,
+      existingUser.passwordHash,
+    );
     if (!passwordMatch) {
       throw new NotFoundException('密码错误');
     }
@@ -324,7 +357,9 @@ export class UserService {
         senderId,
         receiverId,
         targetId: receiverId,
-        extra: addFriendDto.message ? { message: addFriendDto.message } : undefined,
+        extra: addFriendDto.message
+          ? { message: addFriendDto.message }
+          : undefined,
       },
       include: {
         sender: {
@@ -343,14 +378,39 @@ export class UserService {
   async getFriends(userId: string) {
     const friendships = await this.prisma.chatFriendship.findMany({
       where: {
-        OR: [
-          { receiverId: userId },
-          { senderId: userId },
-        ],
+        OR: [{ receiverId: userId }, { senderId: userId }],
       },
       include: {
-        receiver: true,
-        sender: true,
+        receiver: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            nickname: true,
+            avatarUrl: true,
+            bio: true,
+            lastLoginAt: true,
+            lastSeenAt: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+        sender: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            nickname: true,
+            avatarUrl: true,
+            bio: true,
+            lastLoginAt: true,
+            lastSeenAt: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -358,9 +418,9 @@ export class UserService {
     });
     console.log('friendships', friendships);
     return friendships.map((friendship) => {
-      const friend = friendship.receiverId === userId ? friendship.sender : friendship.receiver;
-      const { passwordHash, ...safeFriend } = friend;
-      return safeFriend;
+      return friendship.receiverId === userId
+        ? friendship.sender
+        : friendship.receiver;
     });
   }
 

@@ -68,6 +68,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         email: user.email,
         username: user.username,
       };
+      console.log(`[exp] token payload expiresAt:`, payload.exp);
       if (payload.exp) {
         client.data.tokenExpiresAt = payload.exp * 1000;
       }
@@ -80,15 +81,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  handleDisconnect(client: AuthenticatedSocket) {
+  async handleDisconnect(client: AuthenticatedSocket) {
     const userId = client.data.user?.id;
     if (userId) {
       client.leave(`user:${userId}`);
+      await this.updateLastSeenIfOffline(userId);
     }
   }
 
   @SubscribeMessage('room:join')
-  async joinRoom(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: RoomIdDto) {
+  async joinRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: RoomIdDto,
+  ) {
     const userId = this.getUserId(client);
     await this.chatService.assertRoomMember(body.roomId, userId);
     await client.join(`room:${body.roomId}`);
@@ -96,7 +101,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('room:createGroup')
-  async createGroupRoom(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: CreateGroupRoomDto) {
+  async createGroupRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: CreateGroupRoomDto,
+  ) {
     const userId = this.getUserId(client);
     const room = await this.chatService.createGroupRoom(userId, body);
     await client.join(`room:${room.id}`);
@@ -109,12 +117,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('message:sendRoom')
-  async sendRoomMessage(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SendRoomMessageDto) {
+  async sendRoomMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: SendRoomMessageDto,
+  ) {
     try {
       const userId = this.getUserId(client);
       const result = await this.chatService.sendRoomMessage(userId, body);
       if (!result.isDuplicate) {
-        this.server.to(`room:${body.roomId}`).emit('message:new', result.message);
+        this.server
+          .to(`room:${body.roomId}`)
+          .emit('message:new', result.message);
       }
       // 仍以事件形式回推 message:sent（保持「刷新会话列表」等已有行为，未升级客户端不受影响）
       client.emit('message:sent', result.message);
@@ -127,7 +140,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('message:sendPrivate')
-  async sendPrivateMessage(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SendPrivateMessageDto) {
+  async sendPrivateMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: SendPrivateMessageDto,
+  ) {
     try {
       const userId = this.getUserId(client);
       const result = await this.chatService.sendPrivateMessage(userId, body);
@@ -139,10 +155,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // 发送方通过下面的 message:sent 事件 + 返回值 ack 拿到回执——
       // 避免「user: 循环 + room:」双推导致发送方重复收到。
       for (const member of result.room.members) {
-        this.server.to(`user:${member.userId}`).emit('room:private', result.room);
+        this.server
+          .to(`user:${member.userId}`)
+          .emit('room:private', result.room);
       }
       if (!result.isDuplicate) {
-        this.server.to(`user:${body.receiverId}`).emit('message:new', result.message);
+        this.server
+          .to(`user:${body.receiverId}`)
+          .emit('message:new', result.message);
       }
       client.emit('message:sent', result);
       // 返回 ack：cb 收到 { result, data }，data 为落库后的 message（含服务端 id）
@@ -153,14 +173,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('message:list')
-  async getMessages(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: GetMessagesDto) {
+  async getMessages(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: GetMessagesDto,
+  ) {
     const userId = this.getUserId(client);
     const messages = await this.chatService.getMessages(userId, body);
     return { event: 'message:list', data: messages };
   }
 
   @SubscribeMessage('message:sync')
-  async syncMessages(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: SyncMessagesDto) {
+  async syncMessages(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: SyncMessagesDto,
+  ) {
     try {
       const userId = this.getUserId(client);
       const data = await this.chatService.syncMessages(userId, body);
@@ -171,7 +197,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('message:delivered')
-  async markMessageDelivered(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: DeliveredMessageDto) {
+  async markMessageDelivered(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: DeliveredMessageDto,
+  ) {
     try {
       const userId = this.getUserId(client);
       const data = await this.chatService.markMessageDelivered(userId, body);
@@ -182,7 +211,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('room:read')
-  async markRoomRead(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: RoomIdDto) {
+  async markRoomRead(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: RoomIdDto,
+  ) {
     const userId = this.getUserId(client);
     const result = await this.chatService.markRoomRead(userId, body.roomId);
     this.server.to(`room:${body.roomId}`).emit('room:read', {
@@ -194,7 +226,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('room:clear')
-  async clearRoom(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: RoomIdDto) {
+  async clearRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() body: RoomIdDto,
+  ) {
     const userId = this.getUserId(client);
     const result = await this.chatService.clearRoom(userId, body.roomId);
     client.emit('room:cleared', result);
@@ -220,7 +255,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`room:${roomId}`).emit(event, payload);
   }
 
-  disconnectUser(userId: string, message = '账号已在其他设备登录', event = 'auth:kicked') {
+  disconnectUser(
+    userId: string,
+    message = '账号已在其他设备登录',
+    event = 'auth:kicked',
+  ) {
     this.server.to(`user:${userId}`).emit(event, { message });
     this.server.in(`user:${userId}`).disconnectSockets(true);
   }
@@ -245,5 +284,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       throw new Error('Socket 未认证');
     }
     return userId;
+  }
+
+  private async updateLastSeenIfOffline(userId: string) {
+    try {
+      const sockets = await this.server.in(`user:${userId}`).allSockets();
+      if (sockets.size === 0) {
+        await this.chatService.updateUserLastSeen(userId);
+      }
+    } catch (error) {
+      console.error('[ChatGateway] 更新用户最后在线时间失败:', userId, error);
+    }
   }
 }

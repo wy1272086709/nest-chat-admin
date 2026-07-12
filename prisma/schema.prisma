@@ -78,6 +78,7 @@ model ChatUser {
   avatarUrl     String?
   bio           String?
   lastLoginAt   DateTime?
+  lastSeenAt    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -101,6 +102,7 @@ model ChatUser {
   friendshipsSender       ChatFriendship[] @relation("FriendshipSender")
   friendshipsReceiver       ChatFriendship[] @relation("FriendshipReceiver")
   @@index([status, createdAt])
+  @@index([lastSeenAt])
   @@map("chat_users")
 }
 

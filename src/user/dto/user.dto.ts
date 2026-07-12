@@ -1,4 +1,11 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsString,
+  MinLength,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { UserStatus } from '@prisma/client';
 import { Match } from '@/common/validation/decorators/match.decorator';
@@ -8,7 +15,7 @@ import { Match } from '@/common/validation/decorators/match.decorator';
  */
 export enum EmailVerificationType {
   REGISTER = 'register',
-  FORGET_PASSWORD = 'forgetPassword'
+  FORGET_PASSWORD = 'forgetPassword',
 }
 
 export class SendEmailDto {
@@ -20,11 +27,12 @@ export class SendEmailDto {
   @ApiProperty({
     description: '验证码类型',
     enum: EmailVerificationType,
-    example: EmailVerificationType.REGISTER
+    example: EmailVerificationType.REGISTER,
   })
-
   @IsNotEmpty({ message: '验证码类型不能为空' })
-  @IsEnum(EmailVerificationType, { message: '验证码类型必须是 register 或 forgetPassword' })
+  @IsEnum(EmailVerificationType, {
+    message: '验证码类型必须是 register 或 forgetPassword',
+  })
   type: EmailVerificationType;
 }
 
@@ -75,7 +83,7 @@ export class CreateUserDto {
 export class ForgetPasswordDto {
   @ApiProperty({ description: '用户名' })
   @IsNotEmpty({ message: '用户名不能为空' })
-  username: string;  
+  username: string;
 
   @ApiProperty({ description: '邮箱' })
   @IsNotEmpty({ message: '邮箱不能为空' })
@@ -84,8 +92,8 @@ export class ForgetPasswordDto {
 
   @ApiProperty({ description: '验证码' })
   @IsNotEmpty({ message: '验证码不能为空' })
-  code: string; 
-  
+  code: string;
+
   @ApiProperty({ description: '新密码' })
   @IsNotEmpty({ message: '新密码不能为空' })
   @IsString({ message: '新密码不能为空' })
@@ -94,7 +102,7 @@ export class ForgetPasswordDto {
 
   @ApiProperty({ description: '确认新密码' })
   @IsNotEmpty({ message: '确认新密码不能为空' })
-  @IsString({ message: '确认新密码不能为空' }) 
+  @IsString({ message: '确认新密码不能为空' })
   @Match('password', { message: '确认新密码和新密码不一致' })
   confirmPassword: string;
 }
@@ -140,7 +148,11 @@ export class SearchDto {
 }
 
 export class ChangeUserStatusDto {
-  @ApiProperty({ description: '用户状态', enum: UserStatus, example: UserStatus.BANNED })
+  @ApiProperty({
+    description: '用户状态',
+    enum: UserStatus,
+    example: UserStatus.BANNED,
+  })
   @IsEnum(UserStatus, { message: '用户状态必须是 ACTIVE、INACTIVE 或 BANNED' })
   status: UserStatus;
 }
@@ -160,6 +172,7 @@ export class UserResponseDto {
   createdAt: Date;
   updatedAt: Date;
   lastLoginAt?: Date;
+  lastSeenAt?: Date;
 }
 
 export class AddFriendDto {
