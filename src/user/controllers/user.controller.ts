@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, Put, Delete, Query, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Put,
+  Delete,
+  Query,
+  Request,
+} from '@nestjs/common';
 import { UserService } from '../services/user.service';
 import { ChatUser } from '@prisma/client';
 import {
@@ -15,12 +25,14 @@ import {
 } from '../dto/user.dto';
 import { EmailService } from '@/common/core/services/email.service';
 import { RedisService } from '@/common/core/services/redis.service';
+import { MailQueueService } from '@/common/core/services/mail-queue.service';
 import { AuthService } from '@/common/auth/services/auth.service';
 import { Public } from '@/common/auth/decorators/public.decorator';
 import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
 import { DataResult } from '@/common/core/interceptors/transform.interceptor';
 import { ApiOperation } from '@nestjs/swagger';
 import { ChatGateway } from '@/chat/chat.gateway';
+import * as bcrypt from 'bcryptjs';
 
 @Controller('users')
 export class UserController {
@@ -28,6 +40,7 @@ export class UserController {
     private readonly userService: UserService,
     private readonly emailService: EmailService,
     private readonly redisService: RedisService,
+    private readonly mailQueueService: MailQueueService,
     private readonly authService: AuthService,
     private readonly chatGateway: ChatGateway,
   ) {}
@@ -43,7 +56,9 @@ export class UserController {
 
   @Post('register')
   @Public() // 标记为公开路由，不需要JWT认证
-  async register(@Body() createUserDto: CreateUserDto): Promise<DataResult<Partial<ChatUser>>> {
+  async register(
+    @Body() createUserDto: CreateUserDto,
+  ): Promise<DataResult<Partial<ChatUser>>> {
     try {
       // 校验验证码是否正确
       const codeKey = `verificationCode:${createUserDto.email}:${EmailVerificationType.REGISTER}`;
@@ -68,7 +83,7 @@ export class UserController {
         data,
         result: true,
       };
-    } catch(e) {
+    } catch (e) {
       console.log(e);
       return {
         message: e.message || '注册失败',
@@ -93,31 +108,43 @@ export class UserController {
           data: null,
           message: '请稍后重试，避免频繁发送',
           result: false,
-        }
+        };
       }
       const codeKey = `verificationCode:${to}:${type}`;
       // Redis 存储验证码，过期时间为 10 分钟
       // 这里可以使用 Redis 客户端，例如 ioredis 或 redis
-      await this.redisService.set(codeKey, code, 10 * 60);
+      const ttlSeconds = 10 * 60;
+      await this.redisService.set(codeKey, code, ttlSeconds);
       // 设置限流间隔为 1 分钟
       await this.redisService.set(key, 1, 60);
-      await this.emailService.sendVerificationCode(
-        to,
-        code,
-      );
-      return {
-        message: '验证码发送成功',
-        result: true,
-        data: {
+
+      try {
+        await this.mailQueueService.publishVerificationCode({
+          email: to,
+          type,
           code,
-        }
+          codeKey,
+          ttlSeconds,
+        });
+      } catch (error) {
+        await Promise.all([
+          this.redisService.del(codeKey),
+          this.redisService.del(key),
+        ]);
+        throw error;
+      }
+
+      return {
+        message: '验证码已发送，请查收邮箱',
+        result: true,
+        data: null,
       };
     } catch (error) {
       console.log(error);
       return {
         message: error.message || '验证码发送失败',
         result: false,
-        data: null
+        data: null,
       };
     }
   }
@@ -169,7 +196,7 @@ export class UserController {
       }
 
       // 3. 更新密码
-      const passwordHash = await import('bcryptjs').then(bcrypt => bcrypt.hash(password, 10));
+      const passwordHash = await bcrypt.hash(password, 10);
       await this.userService.update(user.id, { passwordHash });
 
       // 清除已使用的验证码
@@ -200,11 +227,14 @@ export class UserController {
     try {
       // 检查验证码是否正确
       // 从 Redis 获取存储的验证码
-      let message = ''; 
+      let message = '';
       let data = null;
 
       // 使用AuthService验证用户凭据
-      const user = await this.authService.validateUser(loginDto.account, loginDto.password);
+      const user = await this.authService.validateUser(
+        loginDto.account,
+        loginDto.password,
+      );
       if (!user) {
         message = '用户名或密码错误';
       }
@@ -228,7 +258,7 @@ export class UserController {
       return {
         message: '登录成功',
         result: true,
-        data: loginResult // 包含 access_token 和 user 信息
+        data: loginResult, // 包含 access_token 和 user 信息
       };
     } catch (error) {
       // 返回错误信息
@@ -243,7 +273,6 @@ export class UserController {
     }
   }
 
-
   @Post('logout')
   async logout(@CurrentUser() user: ChatUser) {
     // 清除用户 token
@@ -253,12 +282,12 @@ export class UserController {
       result: true,
       data: null,
     };
-  } 
+  }
 
   @Post('saveProfile')
   async saveProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
     try {
-    // 更新用户信息
+      // 更新用户信息
       const result = await this.userService.update(req.user.id, updateUserDto);
       return {
         message: '用户信息更新成功',
@@ -276,9 +305,15 @@ export class UserController {
   }
 
   @Post('searchFriend')
-  async searchFriend(@CurrentUser() user: ChatUser, @Body() searchDto: SearchDto) {
+  async searchFriend(
+    @CurrentUser() user: ChatUser,
+    @Body() searchDto: SearchDto,
+  ) {
     try {
-      const result = await this.userService.searchUsers(searchDto.query, user.id);
+      const result = await this.userService.searchUsers(
+        searchDto.query,
+        user.id,
+      );
       return {
         message: '用户搜索成功',
         result: true,
@@ -316,11 +351,21 @@ export class UserController {
 
   // 添加好友的方法
   @Post('addFriend')
-  async addFriend(@CurrentUser() user: ChatUser, @Body() addFriendDto: AddFriendDto) {
+  async addFriend(
+    @CurrentUser() user: ChatUser,
+    @Body() addFriendDto: AddFriendDto,
+  ) {
     try {
-      const notification = await this.userService.addFriend(user.id, addFriendDto);
-      this.chatGateway.emitToUser(notification.receiverId, 'notification:new', { notification });
-      this.chatGateway.emitToUser(notification.receiverId, 'friend:request', { notification });
+      const notification = await this.userService.addFriend(
+        user.id,
+        addFriendDto,
+      );
+      this.chatGateway.emitToUser(notification.receiverId, 'notification:new', {
+        notification,
+      });
+      this.chatGateway.emitToUser(notification.receiverId, 'friend:request', {
+        notification,
+      });
       return {
         message: '好友申请已发送',
         result: true,
@@ -338,7 +383,10 @@ export class UserController {
 
   // 删除好友：移除好友关系并让该私聊从双方会话列表消失
   @Post('deleteFriend')
-  async deleteFriend(@CurrentUser() user: ChatUser, @Body() removeFriendDto: RemoveFriendDto) {
+  async deleteFriend(
+    @CurrentUser() user: ChatUser,
+    @Body() removeFriendDto: RemoveFriendDto,
+  ) {
     try {
       await this.userService.removeFriend(user.id, removeFriendDto.friendId);
       // 通知双方刷新会话/通讯录（前端 onAny 会捕获含 'friend' 的事件）
@@ -383,7 +431,9 @@ export class UserController {
   }
 
   @Get('groups')
-  @ApiOperation({ description: '获取当前用户加入的群聊列表（含角色与成员数，排除私聊）' })
+  @ApiOperation({
+    description: '获取当前用户加入的群聊列表（含角色与成员数，排除私聊）',
+  })
   async getGroups(@CurrentUser() user: ChatUser) {
     try {
       const result = await this.userService.getGroups(user.id);
@@ -403,7 +453,10 @@ export class UserController {
   }
 
   @Put(':id/status')
-  async changeStatus(@Param('id') id: string, @Body() body: ChangeUserStatusDto) {
+  async changeStatus(
+    @Param('id') id: string,
+    @Body() body: ChangeUserStatusDto,
+  ) {
     try {
       const result = await this.userService.changeStatus(id, body.status);
       if (body.status !== 'ACTIVE') {

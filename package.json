@@ -43,6 +43,7 @@
     "@nestjs/terminus": "^11.1.1",
     "@nestjs/websockets": "^11.1.27",
     "@prisma/client": "5.20.0",
+    "amqplib": "^2.0.1",
     "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
     "class-transformer": "^0.5.1",
@@ -62,6 +63,7 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.23",
+    "@types/amqplib": "^0.10.8",
     "@types/express": "^5.0.6",
     "@types/ms": "^2.1.0",
     "@types/node": "^25.9.3",

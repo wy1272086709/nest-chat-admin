@@ -1,6 +1,9 @@
 import { Module, Global } from '@nestjs/common';
 import { RedisService } from './services/redis.service';
 import { EmailService } from './services/email.service';
+import { RabbitmqService } from './services/rabbitmq.service';
+import { MailQueueService } from './services/mail-queue.service';
+import { MailQueueConsumer } from './services/mail-queue.consumer';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 
 /**
@@ -9,7 +12,20 @@ import { TransformInterceptor } from './interceptors/transform.interceptor';
  */
 @Global()
 @Module({
-  providers: [RedisService, EmailService, TransformInterceptor],
-  exports: [RedisService, EmailService, TransformInterceptor],
+  providers: [
+    RedisService,
+    EmailService,
+    RabbitmqService,
+    MailQueueService,
+    MailQueueConsumer,
+    TransformInterceptor,
+  ],
+  exports: [
+    RedisService,
+    EmailService,
+    RabbitmqService,
+    MailQueueService,
+    TransformInterceptor,
+  ],
 })
 export class CoreModule {}

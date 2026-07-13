@@ -14,7 +14,7 @@
 ```txt
 用户请求发送验证码
   -> 后端校验邮箱、限流、生成验证码
-  -> 验证码写入数据库
+  -> 验证码写入 Redis
   -> 投递 RabbitMQ 消息
   -> HTTP 接口立即返回
   -> Mail Consumer 异步发送邮件
@@ -73,27 +73,58 @@ Routing key：
 mail.verification.send
 ```
 
+### 当前第一版实现边界
+
+当前项目已有 Redis 验证码链路：
+
+```txt
+verificationCode:{email}:{type}
+verificationCode:{email}:{type}:limit
+```
+
+因此第一版不新增验证码数据库表，仍然使用 Redis 保存验证码和发送冷却：
+
+- `verificationCode:{email}:{type}`：保存验证码，TTL 10 分钟。
+- `verificationCode:{email}:{type}:limit`：保存发送冷却，TTL 60 秒。
+- `mail:verification:sent:{eventId}`：Consumer 幂等标记，TTL 10 分钟。
+
+RabbitMQ 第一版只负责“异步发送邮件”：
+
+```txt
+/users/sendEmail
+  -> 写 Redis 验证码和限流 key
+  -> 发布 mail.verification.send
+  -> 立即返回
+
+MailQueueConsumer
+  -> 校验 Redis 中验证码仍存在且未被新请求覆盖
+  -> 调用 EmailService 发送邮件
+  -> 成功后写 mail:verification:sent:{eventId}
+```
+
+后续如果要做更完整的审计和后台重发，再引入 `EmailVerification` 表。
+
 ### 消息体
 
 ```ts
 type MailVerificationSendMessage = {
-  eventId: string
-  verificationId: string
-  email: string
-  type: 'REGISTER' | 'FORGET_PASSWORD'
-  code: string
-  expiresAt: string
-  requestedAt: string
-}
+  eventId: string;
+  email: string;
+  type: 'register' | 'forgetPassword';
+  code: string;
+  codeKey: string;
+  requestedAt: string;
+  expiresAt: string;
+};
 ```
 
 字段说明：
 
 - `eventId`：事件唯一 ID，用于日志追踪和消息幂等。
-- `verificationId`：验证码记录 ID，消费端用它查询业务状态。
 - `email`：收件邮箱。
 - `type`：验证码用途。
 - `code`：验证码。只用于发送邮件，不写入日志。
+- `codeKey`：Redis 验证码 key，Consumer 用它判断验证码是否仍有效。
 - `expiresAt`：验证码过期时间。
 - `requestedAt`：用户请求发送时间。
 
@@ -105,7 +136,7 @@ POST /users/sendEmail
   -> 校验 type
   -> 检查发送频率
   -> 生成验证码
-  -> 写入 EmailVerification 表
+  -> 写入 Redis 验证码和发送冷却
   -> 发布 RabbitMQ 消息
   -> 返回：验证码已发送，请查收邮箱
 ```
@@ -121,19 +152,21 @@ POST /users/sendEmail
 }
 ```
 
-这里的“已发送”表示验证码记录已创建且邮件任务已投递。真正 SMTP 发送由 Consumer 异步完成。
+这里的“已发送”表示验证码已写入 Redis 且邮件任务已投递。真正 SMTP 发送由 Consumer 异步完成。
 
 ## Consumer 处理流程
 
 ```txt
 MailConsumer 收到消息
-  -> 根据 verificationId 查询验证码记录
-  -> 如果记录不存在：ack，记录异常日志
-  -> 如果已发送：ack，幂等跳过
-  -> 如果已过期：ack，跳过发送
+  -> 解析消息体
+  -> 检查 mail:verification:sent:{eventId}
+  -> 如果已处理：ack，幂等跳过
+  -> 根据 codeKey 查询 Redis 验证码
+  -> 如果验证码不存在：ack，说明已过期或被清理
+  -> 如果 Redis 验证码和消息验证码不一致：ack，说明已被新请求覆盖
   -> 调用 SMTP 发送邮件
-  -> 成功：更新 sentAt，ack
-  -> 失败：throw/nack，让 RabbitMQ 重试
+  -> 成功：写 mail:verification:sent:{eventId}，ack
+  -> 失败：发布到 retry queue，ack 原消息
   -> 超过重试次数：进入 DLQ
 ```
 
@@ -160,7 +193,25 @@ MailConsumer 收到消息
 
 后台或运维脚本可以支持手动重新投递。
 
-## 数据表建议
+## 当前代码落点
+
+```txt
+src/common/core/services/rabbitmq.service.ts
+  RabbitMQ 连接、exchange/queue 声明、publish、consume
+
+src/common/core/services/mail-queue.service.ts
+  邮件队列 topology、发布验证码邮件任务、发布 retry/DLQ
+
+src/common/core/services/mail-queue.consumer.ts
+  消费 mail.verification.send.queue，发送邮件，失败重试，幂等跳过
+
+src/user/controllers/user.controller.ts
+  /users/sendEmail 从同步发送改为写 Redis + 发布 RabbitMQ 消息
+```
+
+## 后续数据表建议
+
+当前第一版不新增表。后续如果需要后台查看邮件发送状态、手动重发、审计失败原因，可以新增验证码记录表：
 
 验证码记录表：
 
@@ -293,7 +344,7 @@ Redis
 ## 配置项建议
 
 ```env
-RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672
+RABBITMQ_URL=amqp://admin:123456@127.0.0.1:5672
 RABBITMQ_EXCHANGE=app.events
 MAIL_VERIFICATION_QUEUE=mail.verification.send.queue
 MAIL_VERIFICATION_ROUTING_KEY=mail.verification.send
@@ -304,6 +355,11 @@ MAIL_SEND_MAX_RETRY=3
 MAIL_SEND_COOLDOWN_SECONDS=60
 MAIL_VERIFICATION_TTL_SECONDS=300
 ```
+
+如果没有单独配置 `RABBITMQ_URL`，当前实现会优先使用
+`RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`，再兜底复用
+`ADMIN_LOGIN` / `ADMIN_PASSWORD`，避免 RabbitMQ 容器创建的是 admin 用户，
+应用却继续用 `guest/guest` 连接。
 
 ## 开发步骤
 

@@ -53,6 +53,9 @@ importers:
       '@prisma/client':
         specifier: 5.20.0
         version: 5.20.0(prisma@5.20.0)
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -105,6 +108,9 @@ importers:
       '@nestjs/cli':
         specifier: ^11.0.23
         version: 11.0.23(@types/node@25.9.3)(cssnano@7.1.9(postcss@8.5.15))(postcss@8.5.15)(prettier@3.8.4)
+      '@types/amqplib':
+        specifier: ^0.10.8
+        version: 0.10.8
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
@@ -1000,6 +1006,9 @@ packages:
   '@tokenizer/token@0.3.0':
     resolution: {integrity: sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A==}
 
+  '@types/amqplib@0.10.8':
+    resolution: {integrity: sha512-vtDp8Pk1wsE/AuQ8/Rgtm6KUZYqcnTgNvEHwzCkX8rL7AGsC6zqAfKAAJhUZXFhM/Pp++tbnUHiam/8vVpPztA==}
+
   '@types/body-parser@1.19.6':
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
 
@@ -1280,6 +1289,10 @@ packages:
   alce@1.2.0:
     resolution: {integrity: sha512-XppPf2S42nO2WhvKzlwzlfcApcXHzjlod30pKmcWjRgLOtqoe5DMuqdiYoM6AgyXksc6A6pV4v1L/WW217e57w==}
     engines: {node: '>=0.8.0'}
+
+  amqplib@2.0.1:
+    resolution: {integrity: sha512-a3P2MgfCf9nzVis12VxWEn0dS6hcqve7dlEAhXDtIWR27BlhtMkILOc+H9aeHjDi6i6r94dYKc2Kx2OFe3avvg==}
+    engines: {node: '>=18'}
 
   ansi-align@3.0.1:
     resolution: {integrity: sha512-IOfwwBF5iczOjp/WeY4YxyjqAFMQoZufdQWDd19SEExbVLNXqvpzSJ/M7Za4/sCPmQ0+GRquoA7bGcINcxew6w==}
@@ -4821,6 +4834,10 @@ snapshots:
 
   '@tokenizer/token@0.3.0': {}
 
+  '@types/amqplib@0.10.8':
+    dependencies:
+      '@types/node': 25.9.3
+
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
@@ -5185,6 +5202,8 @@ snapshots:
       esprima: 1.2.5
       estraverse: 1.9.3
     optional: true
+
+  amqplib@2.0.1: {}
 
   ansi-align@3.0.1:
     dependencies:
