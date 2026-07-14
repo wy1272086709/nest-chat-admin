@@ -44,6 +44,13 @@ type SendMessageResult = {
   isDuplicate: boolean;
 };
 
+type ConversationSnapshotRow = {
+  roomId: string;
+  clearedAt: Date | null;
+  lastMessageId: string | null;
+  unreadCount: number;
+};
+
 @Injectable()
 export class ChatService {
   constructor(private readonly prisma: PrismaService) {}
@@ -569,8 +576,7 @@ export class ChatService {
   /**
    * 获取当前用户的会话列表（群聊 + 私聊）。
    * 每个会话附带：最后一条消息、未读数（同时考虑 lastReadAt 与 clearedAt）。
-   * 说明：为保持简单，这里对每个会话单独查未读数（会话数通常不大）；
-   * 后续会话量变大可改成一次 groupBy 批量聚合。
+   * 会话快照使用一次参数化 SQL 批量计算，避免按会话逐个查询产生 N+1。
    */
   async listConversations(userId: string) {
     const memberships = await this.prisma.roomMember.findMany({
@@ -599,67 +605,80 @@ export class ChatService {
       orderBy: { room: { updatedAt: 'desc' } },
     });
 
-    const conversations = await Promise.all(
-      memberships.map(async (membership) => {
-        const clearState = await this.prisma.chatClearState.findUnique({
-          where: { roomId_userId: { roomId: membership.roomId, userId } },
-        });
+    if (memberships.length === 0) return [];
 
-        // 未读阈值：取「上次已读时间」与「清空时间」中较晚者，
-        // 只有晚于该阈值、且不是自己发的、未删除的消息才算未读。
-        const thresholds: number[] = [];
-        if (membership.lastReadAt)
-          thresholds.push(membership.lastReadAt.getTime());
-        if (clearState) thresholds.push(clearState.clearedAt.getTime());
-        const unreadSince = thresholds.length
-          ? new Date(Math.max(...thresholds))
-          : null;
-
-        const unreadWhere: Prisma.MessageWhereInput = {
-          roomId: membership.roomId,
-          senderId: { not: userId },
-          isDeleted: false,
-        };
-        if (unreadSince) {
-          unreadWhere.createdAt = { gt: unreadSince };
-        }
-
-        const [lastMessage, unreadCount] = await Promise.all([
-          this.prisma.message.findFirst({
-            where: {
-              roomId: membership.roomId,
-              isDeleted: false,
-              createdAt: clearState ? { gt: clearState.clearedAt } : undefined,
-            },
-            orderBy: { createdAt: 'desc' },
-            include: {
-              sender: {
-                select: {
-                  id: true,
-                  username: true,
-                  nickname: true,
-                  avatarUrl: true,
-                  lastLoginAt: true,
-                  lastSeenAt: true,
-                },
-              },
-            },
-          }),
-          this.prisma.message.count({ where: unreadWhere }),
-        ]);
-
-        return {
-          room: membership.room,
-          role: membership.role,
-          lastReadAt: membership.lastReadAt,
-          clearedAt: clearState?.clearedAt ?? null,
-          lastMessage,
-          unreadCount,
-        };
-      }),
+    const snapshots = await this.prisma.$queryRaw<ConversationSnapshotRow[]>(
+      Prisma.sql`
+        SELECT
+          rm."roomId" AS "roomId",
+          cs."clearedAt" AS "clearedAt",
+          (
+            SELECT m.id
+            FROM "chat_messages" m
+            WHERE m."roomId" = rm."roomId"
+              AND m."isDeleted" = false
+              AND (cs."clearedAt" IS NULL OR m."createdAt" > cs."clearedAt")
+            ORDER BY m."createdAt" DESC
+            LIMIT 1
+          ) AS "lastMessageId",
+          (
+            SELECT COUNT(*)::int
+            FROM "chat_messages" m
+            WHERE m."roomId" = rm."roomId"
+              AND m."senderId" <> ${userId}
+              AND m."isDeleted" = false
+              AND m."createdAt" > GREATEST(
+                COALESCE(rm."lastReadAt", '-infinity'::timestamp),
+                COALESCE(cs."clearedAt", '-infinity'::timestamp)
+              )
+          ) AS "unreadCount"
+        FROM "chat_room_members" rm
+        LEFT JOIN "chat_clear_states" cs
+          ON cs."roomId" = rm."roomId" AND cs."userId" = rm."userId"
+        WHERE rm."userId" = ${userId}
+          AND rm.status = 'ACTIVE'
+      `,
     );
 
-    return conversations;
+    const snapshotByRoomId = new Map(
+      snapshots.map((snapshot) => [snapshot.roomId, snapshot]),
+    );
+    const lastMessageIds = snapshots.flatMap((snapshot) =>
+      snapshot.lastMessageId ? [snapshot.lastMessageId] : [],
+    );
+    const lastMessages = await this.prisma.message.findMany({
+      where: { id: { in: lastMessageIds } },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            username: true,
+            nickname: true,
+            avatarUrl: true,
+            lastLoginAt: true,
+            lastSeenAt: true,
+          },
+        },
+      },
+    });
+    const lastMessageById = new Map(
+      lastMessages.map((message) => [message.id, message]),
+    );
+
+    return memberships.map((membership) => {
+      const snapshot = snapshotByRoomId.get(membership.roomId);
+
+      return {
+        room: membership.room,
+        role: membership.role,
+        lastReadAt: membership.lastReadAt,
+        clearedAt: snapshot?.clearedAt ?? null,
+        lastMessage: snapshot?.lastMessageId
+          ? (lastMessageById.get(snapshot.lastMessageId) ?? null)
+          : null,
+        unreadCount: snapshot?.unreadCount ?? 0,
+      };
+    });
   }
 
   /** 获取某个聊天室的成员列表（调用前会校验调用者是否为该室成员） */

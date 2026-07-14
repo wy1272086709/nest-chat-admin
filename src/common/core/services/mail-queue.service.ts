@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { RabbitmqService } from './rabbitmq.service';
+import {
+  MAIL_VERIFICATION_TOPOLOGY,
+  RABBITMQ_EXCHANGES,
+} from '../constants/rabbitmq-topology.constant';
 
 export type MailVerificationType = 'register' | 'forgetPassword';
 
@@ -25,45 +29,27 @@ export class MailQueueService {
   ) {}
 
   get queue() {
-    return this.configService.get<string>(
-      'rabbitmq.mailVerificationQueue',
-      'mail.verification.send.queue',
-    );
+    return MAIL_VERIFICATION_TOPOLOGY.queue;
   }
 
   get retryQueue() {
-    return this.configService.get<string>(
-      'rabbitmq.mailVerificationRetryQueue',
-      'mail.verification.send.retry.queue',
-    );
+    return MAIL_VERIFICATION_TOPOLOGY.retryQueue;
   }
 
   get deadLetterQueue() {
-    return this.configService.get<string>(
-      'rabbitmq.mailVerificationDeadLetterQueue',
-      'mail.verification.send.dlq',
-    );
+    return MAIL_VERIFICATION_TOPOLOGY.deadLetterQueue;
   }
 
   get routingKey() {
-    return this.configService.get<string>(
-      'rabbitmq.mailVerificationRoutingKey',
-      'mail.verification.send',
-    );
+    return MAIL_VERIFICATION_TOPOLOGY.routingKey;
   }
 
   get retryRoutingKey() {
-    return this.configService.get<string>(
-      'rabbitmq.mailVerificationRetryRoutingKey',
-      'mail.verification.send.retry',
-    );
+    return MAIL_VERIFICATION_TOPOLOGY.retryRoutingKey;
   }
 
   get deadLetterRoutingKey() {
-    return this.configService.get<string>(
-      'rabbitmq.mailVerificationDeadLetterRoutingKey',
-      'mail.verification.send.dlq',
-    );
+    return MAIL_VERIFICATION_TOPOLOGY.deadLetterRoutingKey;
   }
 
   get retryDelayMs() {
@@ -82,19 +68,19 @@ export class MailQueueService {
 
   async setupTopology(): Promise<void> {
     await this.rabbitmqService.assertTopicExchange(
-      this.rabbitmqService.exchange,
+      RABBITMQ_EXCHANGES.events,
     );
     await this.rabbitmqService.assertTopicExchange(
-      this.rabbitmqService.retryExchange,
+      RABBITMQ_EXCHANGES.retry,
     );
     await this.rabbitmqService.assertTopicExchange(
-      this.rabbitmqService.deadLetterExchange,
+      RABBITMQ_EXCHANGES.deadLetter,
     );
 
     await this.rabbitmqService.assertQueue(this.queue, { durable: true });
     await this.rabbitmqService.bindQueue(
       this.queue,
-      this.rabbitmqService.exchange,
+      RABBITMQ_EXCHANGES.events,
       this.routingKey,
     );
 
@@ -102,13 +88,13 @@ export class MailQueueService {
       durable: true,
       arguments: {
         'x-message-ttl': this.retryDelayMs,
-        'x-dead-letter-exchange': this.rabbitmqService.exchange,
+        'x-dead-letter-exchange': RABBITMQ_EXCHANGES.events,
         'x-dead-letter-routing-key': this.routingKey,
       },
     });
     await this.rabbitmqService.bindQueue(
       this.retryQueue,
-      this.rabbitmqService.retryExchange,
+      RABBITMQ_EXCHANGES.retry,
       this.retryRoutingKey,
     );
 
@@ -117,7 +103,7 @@ export class MailQueueService {
     });
     await this.rabbitmqService.bindQueue(
       this.deadLetterQueue,
-      this.rabbitmqService.deadLetterExchange,
+      RABBITMQ_EXCHANGES.deadLetter,
       this.deadLetterRoutingKey,
     );
   }
@@ -145,7 +131,7 @@ export class MailQueueService {
     };
 
     await this.rabbitmqService.publish(
-      this.rabbitmqService.exchange,
+      RABBITMQ_EXCHANGES.events,
       this.routingKey,
       message,
       {
@@ -173,7 +159,7 @@ export class MailQueueService {
     errorMessage: string,
   ): Promise<void> {
     await this.rabbitmqService.publish(
-      this.rabbitmqService.retryExchange,
+      RABBITMQ_EXCHANGES.retry,
       this.retryRoutingKey,
       message,
       {
@@ -200,7 +186,7 @@ export class MailQueueService {
     errorMessage: string,
   ): Promise<void> {
     await this.rabbitmqService.publish(
-      this.rabbitmqService.deadLetterExchange,
+      RABBITMQ_EXCHANGES.deadLetter,
       this.deadLetterRoutingKey,
       {
         ...message,

@@ -24,24 +24,6 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     await this.close();
   }
 
-  get exchange() {
-    return this.configService.get<string>('rabbitmq.exchange', 'app.events');
-  }
-
-  get retryExchange() {
-    return this.configService.get<string>(
-      'rabbitmq.retryExchange',
-      'app.events.retry',
-    );
-  }
-
-  get deadLetterExchange() {
-    return this.configService.get<string>(
-      'rabbitmq.deadLetterExchange',
-      'app.events.dlx',
-    );
-  }
-
   async getChannel(): Promise<Channel> {
     if (this.channel) return this.channel;
 

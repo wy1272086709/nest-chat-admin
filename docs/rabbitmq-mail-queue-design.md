@@ -345,16 +345,14 @@ Redis
 
 ```env
 RABBITMQ_URL=amqp://admin:123456@127.0.0.1:5672
-RABBITMQ_EXCHANGE=app.events
-MAIL_VERIFICATION_QUEUE=mail.verification.send.queue
-MAIL_VERIFICATION_ROUTING_KEY=mail.verification.send
-MAIL_VERIFICATION_DLX=app.events.dlx
-MAIL_VERIFICATION_DLQ=mail.verification.send.dlq
-
-MAIL_SEND_MAX_RETRY=3
-MAIL_SEND_COOLDOWN_SECONDS=60
-MAIL_VERIFICATION_TTL_SECONDS=300
+RABBITMQ_MAIL_CONSUMER_ENABLED=true
+MAIL_RETRY_DELAY_MS=10000
+MAIL_MAX_RETRY=3
+MAIL_PREFETCH=5
 ```
+
+Exchange、Queue 和 Routing Key 属于应用内部消息协议，统一维护在
+`src/common/core/constants/rabbitmq-topology.constant.ts`，不再通过环境变量分别配置。
 
 如果没有单独配置 `RABBITMQ_URL`，当前实现会优先使用
 `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD`，再兜底复用

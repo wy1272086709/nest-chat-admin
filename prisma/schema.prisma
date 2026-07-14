@@ -240,6 +240,7 @@ model RoomMember {
   user         ChatUser         @relation(fields: [userId], references: [id])
 
   @@unique([roomId, userId])
+  @@index([userId, status])
   @@map("chat_room_members")
 }
 

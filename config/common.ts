@@ -81,33 +81,15 @@ export default () => ({
   },
   rabbitmq: {
     url: buildRabbitmqUrl(),
-    exchange: process.env.RABBITMQ_EXCHANGE ?? 'app.events',
-    retryExchange: process.env.RABBITMQ_RETRY_EXCHANGE ?? 'app.events.retry',
-    deadLetterExchange: process.env.RABBITMQ_DLX ?? 'app.events.dlx',
     mailConsumerEnabled: process.env.RABBITMQ_MAIL_CONSUMER_ENABLED !== 'false',
-    mailVerificationQueue:
-      process.env.MAIL_VERIFICATION_QUEUE ?? 'mail.verification.send.queue',
-    mailVerificationRetryQueue:
-      process.env.MAIL_VERIFICATION_RETRY_QUEUE ??
-      'mail.verification.send.retry.queue',
-    mailVerificationDeadLetterQueue:
-      process.env.MAIL_VERIFICATION_DLQ ?? 'mail.verification.send.dlq',
-    mailVerificationRoutingKey:
-      process.env.MAIL_VERIFICATION_ROUTING_KEY ?? 'mail.verification.send',
-    mailVerificationRetryRoutingKey:
-      process.env.MAIL_VERIFICATION_RETRY_ROUTING_KEY ??
-      'mail.verification.send.retry',
-    mailVerificationDeadLetterRoutingKey:
-      process.env.MAIL_VERIFICATION_DLQ_ROUTING_KEY ??
-      'mail.verification.send.dlq',
     mailVerificationRetryDelayMs: Number(
-      process.env.MAIL_VERIFICATION_RETRY_DELAY_MS ?? 10000,
+      process.env.MAIL_RETRY_DELAY_MS ?? 10000,
     ),
     mailVerificationMaxRetry: Number(
-      process.env.MAIL_VERIFICATION_MAX_RETRY ?? 3,
+      process.env.MAIL_MAX_RETRY ?? 3,
     ),
     mailVerificationPrefetch: Number(
-      process.env.MAIL_VERIFICATION_PREFETCH ?? 5,
+      process.env.MAIL_PREFETCH ?? 5,
     ),
   },
 });
