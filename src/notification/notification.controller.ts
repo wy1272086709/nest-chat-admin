@@ -1,13 +1,16 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Post } from '@nestjs/common';
 import { ChatUser } from '@prisma/client';
 import { ApiOperation } from '@nestjs/swagger';
 import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
 import { ChatGateway } from '@/chat/chat.gateway';
 import { HandleFriendRequestDto, MarkNotificationReadDto } from './dto/notification.dto';
 import { NotificationService } from './notification.service';
+import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
 
 @Controller('notifications')
 export class NotificationController {
+  private readonly logger = new Logger(NotificationController.name);
+
   constructor(
     private readonly notificationService: NotificationService,
     private readonly chatGateway: ChatGateway,
@@ -24,9 +27,9 @@ export class NotificationController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '通知列表获取失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -44,9 +47,9 @@ export class NotificationController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '好友申请获取失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -68,9 +71,9 @@ export class NotificationController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '通知已读失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -88,9 +91,9 @@ export class NotificationController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '通知全部已读失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -114,9 +117,9 @@ export class NotificationController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '好友申请处理失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };

@@ -5,9 +5,8 @@ import {
   Body,
   Param,
   Put,
-  Delete,
-  Query,
   Request,
+  Logger,
 } from '@nestjs/common';
 import { UserService } from '../services/user.service';
 import { ChatUser } from '@prisma/client';
@@ -33,9 +32,12 @@ import { DataResult } from '@/common/core/interceptors/transform.interceptor';
 import { ApiOperation } from '@nestjs/swagger';
 import { ChatGateway } from '@/chat/chat.gateway';
 import * as bcrypt from 'bcryptjs';
+import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
 
 @Controller('users')
 export class UserController {
+  private readonly logger = new Logger(UserController.name);
+
   constructor(
     private readonly userService: UserService,
     private readonly emailService: EmailService,
@@ -84,9 +86,9 @@ export class UserController {
         result: true,
       };
     } catch (e) {
-      console.log(e);
+      this.logger.error(e);
       return {
-        message: e.message || '注册失败',
+        message: SERVICE_ERROR_MESSAGE,
         data: null,
         result: false,
       };
@@ -140,9 +142,9 @@ export class UserController {
         data: null,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '验证码发送失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -212,9 +214,9 @@ export class UserController {
         result: true,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '密码重置失败',
+        message: SERVICE_ERROR_MESSAGE,
         data: null,
         result: false,
       };
@@ -261,9 +263,9 @@ export class UserController {
         data: loginResult, // 包含 access_token 和 user 信息
       };
     } catch (error) {
-      // 返回错误信息
+      this.logger.error(error);
       return {
-        message: error.message || '登录失败',
+        message: SERVICE_ERROR_MESSAGE,
         data: null,
         result: false,
       };
@@ -295,9 +297,9 @@ export class UserController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '用户信息更新失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -320,9 +322,9 @@ export class UserController {
         data: result ? [result] : [],
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '用户搜索失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -340,9 +342,9 @@ export class UserController {
         data: users,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '用户模糊搜索失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -372,9 +374,9 @@ export class UserController {
         data: null,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '添加好友失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -401,9 +403,9 @@ export class UserController {
         data: null,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '删除好友失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -414,16 +416,16 @@ export class UserController {
   async getFriends(@CurrentUser() user: ChatUser) {
     try {
       const result = await this.userService.getFriends(user.id);
-      console.log('result', result);
+      this.logger.debug({ event: 'user.search.completed', resultCount: result.length });
       return {
         message: '好友列表获取成功',
         result: true,
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '好友列表获取失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -443,9 +445,9 @@ export class UserController {
         data: Array.isArray(result) ? result : [],
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '群聊列表获取失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };
@@ -469,9 +471,9 @@ export class UserController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       return {
-        message: error.message || '用户状态更新失败',
+        message: SERVICE_ERROR_MESSAGE,
         result: false,
         data: null,
       };

@@ -1,11 +1,13 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class DatabaseService extends PrismaClient implements OnModuleInit {
+  private readonly logger = new Logger(DatabaseService.name);
+
   async onModuleInit() {
     await this.$connect();
-    console.log('Database connected successfully');
+    this.logger.log({ event: 'database.connected' });
   }
 
   // 健康检查
@@ -17,7 +19,7 @@ export class DatabaseService extends PrismaClient implements OnModuleInit {
       return {
         status: 'unhealthy',
         timestamp: new Date(),
-        error: error.message
+        error: 'Database health check failed'
       };
     }
   }

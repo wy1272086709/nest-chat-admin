@@ -20,7 +20,7 @@ const buildRabbitmqUrl = () => {
 
 export default () => ({
   app: {
-    name: process.env.APP_NAME ?? 'nextjs-server',
+    name: process.env.APP_NAME ?? 'Nestjs-Server',
     env: process.env.NODE_ENV ?? 'development',
     port: Number(process.env.APP_PORT ?? 3000),
     apiPrefix: process.env.APP_API_PREFIX ?? 'api',

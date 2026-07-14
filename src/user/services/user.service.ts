@@ -4,6 +4,7 @@ import {
   NotFoundException,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/database/services/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -12,6 +13,8 @@ import { AddFriendDto, LoginDto } from '../dto/user.dto';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   private getFriendshipPair(userId: string, friendId: string) {
@@ -416,7 +419,11 @@ export class UserService {
         createdAt: 'desc',
       },
     });
-    console.log('friendships', friendships);
+    this.logger.debug({
+      event: 'user.friendships.loaded',
+      userId,
+      count: friendships.length,
+    });
     return friendships.map((friendship) => {
       return friendship.receiverId === userId
         ? friendship.sender

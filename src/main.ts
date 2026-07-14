@@ -1,19 +1,17 @@
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
-import { loggerMiddleware } from './common/core/middleware/logger.middleware';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
   const configService = app.get(ConfigService);
 
   // 全局前缀
   const globalPrefix = configService.get<string>('GLOBAL_PREFIX', '/api');
   app.setGlobalPrefix(globalPrefix);
-
-  // 日志中间件
-  app.use(loggerMiddleware);
 
   // Swagger 文档
   const config = new DocumentBuilder()
@@ -29,7 +27,10 @@ async function bootstrap() {
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
 
-  console.log(`Application is running on: http://localhost:${port}/${globalPrefix}`);
-  console.log(`Swagger documentation: http://localhost:${port}/docs`);
+  const logger = app.get(Logger);
+  logger.log(
+    `Application is running on: http://localhost:${port}/${globalPrefix}`,
+  );
+  logger.log(`Swagger documentation: http://localhost:${port}/docs`);
 }
 bootstrap();

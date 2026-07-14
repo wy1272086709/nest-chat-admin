@@ -1,10 +1,11 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as amqp from 'amqplib';
 import type { Channel, ChannelModel, ConsumeMessage, Options } from 'amqplib';
 
 @Injectable()
 export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RabbitmqService.name);
   private connection: ChannelModel | null = null;
   private channel: Channel | null = null;
   private connecting: Promise<Channel | null> | null = null;
@@ -15,7 +16,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.getChannel();
     } catch (error) {
-      console.error('[RabbitMQ] 初始化连接失败，应用将继续启动:', error);
+      this.logger.error({ event: 'rabbitmq.initialization_failed', err: error });
     }
   }
 
@@ -82,7 +83,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         try {
           await onMessage(message, channel);
         } catch (error) {
-          console.error('[RabbitMQ] 消费消息异常:', queue, error);
+          this.logger.error({
+            event: 'rabbitmq.consume_failed',
+            eventId: message.properties.messageId,
+            queue,
+            attempts: this.getAttempts(message),
+            err: error,
+          });
           channel.nack(message, false, false);
         }
       },
@@ -131,13 +138,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         const channel = await connection.createChannel();
 
         connection.on('error', (error) => {
-          console.error('[RabbitMQ] 连接错误:', error);
+          this.logger.error({ event: 'rabbitmq.connection_error', err: error });
           this.connection = null;
           this.channel = null;
         });
 
         connection.on('close', () => {
-          console.warn('[RabbitMQ] 连接已关闭');
+          this.logger.warn({ event: 'rabbitmq.connection_closed' });
           this.connection = null;
           this.channel = null;
         });
@@ -145,7 +152,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         this.connection = connection;
         this.channel = channel;
 
-        console.log('[RabbitMQ] connected');
+        this.logger.log({ event: 'rabbitmq.connected' });
         return channel;
       } catch (error) {
         this.connection = null;
@@ -164,10 +171,15 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       await this.channel?.close();
       await this.connection?.close();
     } catch (error) {
-      console.error('[RabbitMQ] 关闭连接失败:', error);
+      this.logger.error({ event: 'rabbitmq.close_failed', err: error });
     } finally {
       this.channel = null;
       this.connection = null;
     }
+  }
+
+  private getAttempts(message: ConsumeMessage): number {
+    const attempts = message.properties.headers?.['x-attempts'];
+    return typeof attempts === 'number' ? attempts : Number(attempts || 0);
   }
 }

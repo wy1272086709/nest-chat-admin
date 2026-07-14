@@ -1,13 +1,16 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ChatUser } from '@prisma/client';
 import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
 import { CreateFavoriteDto, FavoriteQueryDto, RemoveFavoriteDto } from './dto/favorite.dto';
 import { FavoriteService } from './favorite.service';
+import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
 
 @ApiTags('Favorite')
 @Controller('favorites')
 export class FavoriteController {
+  private readonly logger = new Logger(FavoriteController.name);
+
   constructor(private readonly favoriteService: FavoriteService) {}
 
   @Get()
@@ -17,8 +20,8 @@ export class FavoriteController {
       const data = await this.favoriteService.list(user.id, query);
       return { message: '收藏列表获取成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '收藏列表获取失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -29,8 +32,8 @@ export class FavoriteController {
       const data = await this.favoriteService.create(user.id, dto);
       return { message: '收藏成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '收藏失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -41,8 +44,8 @@ export class FavoriteController {
       const data = await this.favoriteService.remove(user.id, dto);
       return { message: '取消收藏成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '取消收藏失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 }

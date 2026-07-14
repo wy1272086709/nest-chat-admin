@@ -1,4 +1,4 @@
-import { UseInterceptors } from '@nestjs/common';
+import { Logger, UseInterceptors } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -21,6 +21,7 @@ import {
   SendRoomMessageDto,
   SyncMessagesDto,
 } from './dto/chat.dto';
+import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
 
 type AuthenticatedSocket = Socket & {
   data: {
@@ -43,6 +44,8 @@ type AuthenticatedSocket = Socket & {
 })
 @UseInterceptors(WsTokenRefreshInterceptor)
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(ChatGateway.name);
+
   @WebSocketServer()
   private server: Server;
 
@@ -68,7 +71,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         email: user.email,
         username: user.username,
       };
-      console.log(`[exp] token payload expiresAt:`, payload.exp);
+      this.logger.debug({
+        event: 'chat.socket_token.resolved',
+        tokenExpiresAt: payload.exp,
+      });
       if (payload.exp) {
         client.data.tokenExpiresAt = payload.exp * 1000;
       }
@@ -76,7 +82,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await client.join(`user:${user.id}`);
       client.emit('chat:connected', { userId: user.id });
     } catch (error) {
-      client.emit('chat:error', { message: error.message || '连接认证失败' });
+      this.logger.error(error);
+      client.emit('chat:error', { message: SERVICE_ERROR_MESSAGE });
       client.disconnect();
     }
   }
@@ -135,7 +142,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // cb 会收到 { result, data }，用于在客户端精确确认这一条消息的投递结果（替代以前的「发后即忘」）
       return { result: true, data: result.message };
     } catch (error) {
-      return { result: false, message: error?.message || '发送失败' };
+      this.logger.error(error);
+      return { result: false, message: SERVICE_ERROR_MESSAGE };
     }
   }
 
@@ -168,7 +176,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // 返回 ack：cb 收到 { result, data }，data 为落库后的 message（含服务端 id）
       return { result: true, data: result.message };
     } catch (error) {
-      return { result: false, message: error?.message || '发送失败' };
+      this.logger.error(error);
+      return { result: false, message: SERVICE_ERROR_MESSAGE };
     }
   }
 
@@ -192,7 +201,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const data = await this.chatService.syncMessages(userId, body);
       return { result: true, event: 'message:sync', data };
     } catch (error) {
-      return { result: false, message: error?.message || '消息同步失败' };
+      this.logger.error(error);
+      return { result: false, message: SERVICE_ERROR_MESSAGE };
     }
   }
 
@@ -206,7 +216,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const data = await this.chatService.markMessageDelivered(userId, body);
       return { result: true, event: 'message:delivered', data };
     } catch (error) {
-      return { result: false, message: error?.message || '消息送达确认失败' };
+      this.logger.error(error);
+      return { result: false, message: SERVICE_ERROR_MESSAGE };
     }
   }
 
@@ -293,7 +304,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.chatService.updateUserLastSeen(userId);
       }
     } catch (error) {
-      console.error('[ChatGateway] 更新用户最后在线时间失败:', userId, error);
+      this.logger.error({
+        event: 'chat.last_online_update.failed',
+        userId,
+        err: error,
+      });
     }
   }
 }

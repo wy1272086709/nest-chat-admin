@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ChatUser } from '@prisma/client';
 import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { AddMembersDto, CreateGroupRoomDto, HistoryQueryDto, InitPrivateRoomDto, SyncMessagesQueryDto } from './dto/chat.dto';
+import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
 
 /**
  * 聊天 HTTP 接口。
@@ -17,6 +18,8 @@ import { AddMembersDto, CreateGroupRoomDto, HistoryQueryDto, InitPrivateRoomDto,
 @ApiTags('Chat')
 @Controller('chat')
 export class ChatController {
+  private readonly logger = new Logger(ChatController.name);
+
   constructor(
     private readonly chatService: ChatService,
     private readonly chatGateway: ChatGateway,
@@ -35,8 +38,8 @@ export class ChatController {
       );
       return { message: '群聊创建成功', result: true, data: room };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '群聊创建失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -52,8 +55,8 @@ export class ChatController {
       );
       return { message: '私聊会话获取成功', result: true, data: room };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '私聊会话获取失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -64,8 +67,8 @@ export class ChatController {
       const data = await this.chatService.listConversations(user.id);
       return { message: '会话列表获取成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '会话列表获取失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -80,8 +83,8 @@ export class ChatController {
       const data = await this.chatService.getMessages(user.id, { roomId, take: query.take });
       return { message: '历史消息获取成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '历史消息获取失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -100,8 +103,8 @@ export class ChatController {
       });
       return { message: '消息同步成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '消息同步失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -112,8 +115,8 @@ export class ChatController {
       const data = await this.chatService.getRoomMembers(roomId, user.id);
       return { message: '成员列表获取成功', result: true, data };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '成员列表获取失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -129,8 +132,8 @@ export class ChatController {
       });
       return { message: '已读设置成功', result: true, data: result };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '已读设置失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -141,8 +144,8 @@ export class ChatController {
       const result = await this.chatService.clearRoom(user.id, roomId);
       return { message: '聊天记录已清空', result: true, data: result };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '聊天记录清空失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -166,8 +169,8 @@ export class ChatController {
         data: result,
       };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '退出群聊失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 
@@ -198,8 +201,8 @@ export class ChatController {
       }
       return { message: '成员邀请成功', result: true, data: { addedMemberIds } };
     } catch (error) {
-      console.log(error);
-      return { message: error.message || '邀请成员失败', result: false, data: null };
+      this.logger.error(error);
+      return { message: SERVICE_ERROR_MESSAGE, result: false, data: null };
     }
   }
 }

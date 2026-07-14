@@ -1,5 +1,7 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, Logger } from '@nestjs/common';
 import { ChatUser } from '@prisma/client';
+
+const logger = new Logger('CurrentUser');
 
 /**
  * 获取当前登录用户的装饰器
@@ -14,7 +16,7 @@ export const CurrentUser = createParamDecorator(
   (data: keyof ChatUser | undefined, ctx: ExecutionContext): ChatUser | any => {
     const request = ctx.switchToHttp().getRequest();
     const user = request.user;
-    console.log('user', user);
+    logger.debug({ event: 'auth.current_user.resolved', userId: user?.id });
 
     // 如果指定了字段，只返回该字段的值
     return data ? user?.[data] : user;

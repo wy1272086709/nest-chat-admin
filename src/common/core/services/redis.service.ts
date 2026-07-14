@@ -1,9 +1,10 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RedisService.name);
   private client: Redis;
   private publisher: Redis;
   private subscriber: Redis;
@@ -34,7 +35,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       retryStrategy: (times: number) => {
         const delay = Math.min(times * 100, 3000);
         if (times > 10) {
-          console.log(`Redis 重连 ${times} 次，延迟 ${delay}ms`);
+          this.logger.error({
+            event: 'redis.reconnect_exhausted',
+            attempts: times,
+            delayMs: delay,
+          });
           return null; // 10 次后停止重试
         }
         return delay;
@@ -61,7 +66,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         return false;
       },
     };
-    console.log(redisConfig);
+    this.logger.debug({
+      event: 'redis.configured',
+      host: redisHost,
+      port: redisPort,
+      db: redisDb,
+    });
     if (redisPassword) {
       this.client = new Redis({
         ...redisConfig,
@@ -89,33 +99,46 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   private setupEventListeners(redisInstance: Redis, name: string) {
     redisInstance.on('connect', () => {
-      console.log(`Redis ${name} connected`);
+      this.logger.log({ event: 'redis.connected', connection: name });
     });
 
     redisInstance.on('ready', () => {
-      console.log(`Redis ${name} ready`);
+      this.logger.log({ event: 'redis.ready', connection: name });
     });
 
     redisInstance.on('error', (err) => {
-      console.error(`Redis ${name} error:`, err.message);
+      this.logger.error({
+        event: 'redis.error',
+        connection: name,
+        err,
+      });
     });
 
     redisInstance.on('close', () => {
-      console.log(`Redis ${name} connection closed`);
+      this.logger.warn({ event: 'redis.closed', connection: name });
     });
 
     redisInstance.on('reconnecting', (params: { delay: number; attempt: number }) => {
-      console.log(`Redis ${name} reconnecting (attempt ${params.attempt}, delay ${params.delay}ms)`);
+      this.logger.warn({
+        event: 'redis.reconnecting',
+        connection: name,
+        attempts: params.attempt,
+        delayMs: params.delay,
+      });
     });
 
     redisInstance.on('end', () => {
-      console.log(`Redis ${name} connection ended`);
+      this.logger.warn({ event: 'redis.ended', connection: name });
     });
 
     // 监听 subscriber 的消息事件
     if (name === 'subscriber') {
       redisInstance.on('message', (channel, message) => {
-        console.log(`Received message from ${channel}: ${message}`);
+        this.logger.debug({
+          event: 'redis.message_received',
+          channel,
+          messageLength: message.length,
+        });
       });
     }
   }

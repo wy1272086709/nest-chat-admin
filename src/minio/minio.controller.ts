@@ -1,8 +1,10 @@
-import { Controller, Get, Inject, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, Query } from '@nestjs/common';
 import * as Minio from 'minio';
 
 @Controller('minio')
 export class MinioController {
+  private readonly logger = new Logger(MinioController.name);
+
   @Inject('MINIO_CLIENT')
   private minioClient: Minio.Client;
 
@@ -14,7 +16,7 @@ export class MinioController {
         name, 
         3600,
       );
-      console.log(presignedUrl);
+      this.logger.debug({ event: 'minio.presigned_put_url_created', objectName: name });
       return {
         message: '预签名URL生成成功',
         result: true,
@@ -23,7 +25,11 @@ export class MinioController {
         }
       };
     } catch (error) {
-      console.error('Error generating presigned URL:', error);
+      this.logger.error({
+        event: 'minio.presigned_put_url_failed',
+        objectName: name,
+        err: error,
+      });
       throw error;
     }
   }
@@ -37,7 +43,7 @@ export class MinioController {
         3600,
         { "response-content-disposition": "inline" } // 关键：内嵌预览，不下载
       );
-      console.log(previewUrl);
+      this.logger.debug({ event: 'minio.preview_url_created', objectName: name });
       return {
         message: '预览URL生成成功',
         result: true,
@@ -46,7 +52,11 @@ export class MinioController {
         }
       };
     } catch (error) {
-      console.error('Error generating preview URL:', error);
+      this.logger.error({
+        event: 'minio.preview_url_failed',
+        objectName: name,
+        err: error,
+      });
       return {
         message: '预览URL生成失败',
         result: false,

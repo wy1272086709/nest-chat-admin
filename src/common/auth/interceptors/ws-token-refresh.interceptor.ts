@@ -91,7 +91,7 @@ export class WsTokenRefreshInterceptor implements NestInterceptor {
   }
 
   private disconnectForAuthFailure(client: RefreshableSocket, error: any) {
-    const message = error?.message || '登录状态已失效';
+    const message = '登录状态已失效';
     const event = message.includes('禁用') ? 'auth:disabled' : 'auth:kicked';
     client.emit(event, { message });
     client.disconnect();

@@ -17,19 +17,78 @@ import { MinioModule } from './minio/minio.module';
 import { NotificationModule } from './notification/notification.module';
 import { ChatModule } from './chat/chat.module';
 import { FavoriteModule } from './favorite/favorite.module';
+import { LoggerModule } from 'nestjs-pino';
+import { randomUUID } from 'crypto';
 
 const suffix = process.env.NODE_ENV ?? 'development';
 
 @Module({
   imports: [
-    // 全局模块（提供 PrismaService、RedisService、EmailService）
-    CommonModule,
     // 配置模块
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [`.env.${suffix}`, '.env'],
       load: [commonConfig],
     }),
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const environment = configService.get<string>('app.env', 'development');
+        const isProduction = environment === 'production';
+
+        return {
+          pinoHttp: {
+            level: configService.get<string>('log.level', 'info'),
+            genReqId: (request, response) => {
+              const requestIdHeader = request.headers['x-request-id'];
+              const requestId =
+                (Array.isArray(requestIdHeader)
+                  ? requestIdHeader[0]
+                  : requestIdHeader) || randomUUID();
+
+              response.setHeader('x-request-id', requestId);
+              return requestId;
+            },
+            customProps: () => ({
+              service: configService.get<string>('app.name', 'nest-admin'),
+              environment,
+            }),
+            customLogLevel: (_request, response, error) => {
+              if (error || response.statusCode >= 500) return 'error';
+              if (response.statusCode >= 400) return 'warn';
+              return 'info';
+            },
+            redact: {
+              paths: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'req.body.password',
+                'req.body.pass',
+                'req.body.token',
+                'req.body.accessToken',
+                'req.body.refreshToken',
+                'req.body.code',
+                'res.headers["set-cookie"]',
+              ],
+              censor: '[REDACTED]',
+            },
+            transport: isProduction
+              ? undefined
+              : {
+                  target: 'pino-pretty',
+                  options: {
+                    colorize: true,
+                    singleLine: true,
+                    translateTime: 'SYS:standard',
+                  },
+                },
+          },
+        };
+      },
+    }),
+    // 全局模块（提供 PrismaService、RedisService、EmailService）
+    CommonModule,
     // Redis队列
     BullModule.forRootAsync({
       imports: [ConfigModule],

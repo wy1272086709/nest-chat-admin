@@ -1,9 +1,10 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createTransport, Transporter } from 'nodemailer';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
+  private readonly logger = new Logger(EmailService.name);
   private transporter: Transporter;
 
   constructor(private readonly configService: ConfigService) {
@@ -25,9 +26,9 @@ export class EmailService implements OnModuleInit {
     // 验证配置是否正确
     try {
       await this.transporter.verify();
-      console.log('✅ Email service initialized successfully');
+      this.logger.log({ event: 'email.initialized' });
     } catch (error) {
-      console.error('❌ Email service initialization failed:', error);
+      this.logger.error({ event: 'email.initialization_failed', err: error });
       // 不抛出错误，允许应用继续运行
     }
   }
@@ -112,7 +113,7 @@ export class EmailService implements OnModuleInit {
       await this.transporter.verify();
       return true;
     } catch (error) {
-      console.error('Email service health check failed:', error);
+      this.logger.error({ event: 'email.health_check_failed', err: error });
       return false;
     }
   }

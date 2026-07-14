@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { RabbitmqService } from './rabbitmq.service';
@@ -17,6 +17,8 @@ export type MailVerificationSendMessage = {
 
 @Injectable()
 export class MailQueueService {
+  private readonly logger = new Logger(MailQueueService.name);
+
   constructor(
     private readonly configService: ConfigService,
     private readonly rabbitmqService: RabbitmqService,
@@ -155,6 +157,13 @@ export class MailQueueService {
       },
     );
 
+    this.logger.log({
+      event: 'rabbitmq.message_published',
+      eventId: message.eventId,
+      queue: this.queue,
+      attempts: 0,
+    });
+
     return message;
   }
 
@@ -176,6 +185,13 @@ export class MailQueueService {
         },
       },
     );
+
+    this.logger.log({
+      event: 'rabbitmq.retry_published',
+      eventId: message.eventId,
+      queue: this.retryQueue,
+      attempts,
+    });
   }
 
   async publishDeadLetter(
@@ -201,5 +217,12 @@ export class MailQueueService {
         },
       },
     );
+
+    this.logger.log({
+      event: 'rabbitmq.dead_letter_published',
+      eventId: message.eventId,
+      queue: this.deadLetterQueue,
+      attempts,
+    });
   }
 }

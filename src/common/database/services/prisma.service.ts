@@ -1,16 +1,18 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PrismaService.name);
+
   async onModuleInit() {
     await this.$connect();
-    console.log('✅ Prisma connected to database');
+    this.logger.log({ event: 'prisma.connected' });
   }
 
   async onModuleDestroy() {
     await this.$disconnect();
-    console.log('🔌 Prisma disconnected');
+    this.logger.log({ event: 'prisma.disconnected' });
   }
 
   // 健康检查
@@ -26,7 +28,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       return {
         status: 'unhealthy',
         timestamp: new Date(),
-        error: error.message,
+        error: 'Database health check failed',
       };
     }
   }
@@ -38,11 +40,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       const result = await this.$queryRaw.apply(this, [query, ...args]);
       const duration = Date.now() - start;
       if (duration > 1000) {
-        console.warn(`Slow query detected: ${duration}ms`, query[0]);
+        this.logger.warn({
+          event: 'prisma.slow_query',
+          durationMs: duration,
+          query: query[0],
+        });
       }
       return result;
     } catch (error) {
-      console.error(`Query failed: ${query[0]}`, error);
+      this.logger.error({
+        event: 'prisma.query_failed',
+        query: query[0],
+        err: error,
+      });
       throw error;
     }
   }

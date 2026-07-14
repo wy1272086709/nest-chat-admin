@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Channel, ConsumeMessage } from 'amqplib';
 import { EmailService } from './email.service';
@@ -11,6 +11,8 @@ import { RedisService } from './redis.service';
 
 @Injectable()
 export class MailQueueConsumer implements OnModuleInit {
+  private readonly logger = new Logger(MailQueueConsumer.name);
+
   constructor(
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
@@ -35,13 +37,21 @@ export class MailQueueConsumer implements OnModuleInit {
         this.mailQueueService.queue,
         (message, channel) => this.handleMessage(message, channel),
       );
-      console.log('[MailQueue] consumer started');
+      this.logger.log({
+        event: 'rabbitmq.consumer_started',
+        queue: this.mailQueueService.queue,
+      });
     } catch (error) {
-      console.error('[MailQueue] consumer 启动失败，应用将继续运行:', error);
+      this.logger.error({
+        event: 'rabbitmq.consumer_start_failed',
+        queue: this.mailQueueService.queue,
+        err: error,
+      });
     }
   }
 
   private async handleMessage(message: ConsumeMessage, channel: Channel) {
+    const attempts = this.getAttempts(message);
     const payload = this.parseMessage(message);
     if (!payload) {
       channel.ack(message);
@@ -49,69 +59,95 @@ export class MailQueueConsumer implements OnModuleInit {
     }
 
     try {
-      await this.sendVerificationEmail(payload);
+      await this.sendVerificationEmail(payload, attempts);
       channel.ack(message);
+      this.logger.log({
+        event: 'rabbitmq.message_processed',
+        eventId: payload.eventId,
+        queue: this.mailQueueService.queue,
+        attempts,
+      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : '邮件发送失败';
-      const attempts = this.getAttempts(message) + 1;
+      const nextAttempts = attempts + 1;
 
       try {
-        if (attempts >= this.mailQueueService.maxRetry) {
+        if (nextAttempts >= this.mailQueueService.maxRetry) {
           await this.mailQueueService.publishDeadLetter(
             payload,
-            attempts,
+            nextAttempts,
             errorMessage,
           );
-          console.error('[MailQueue] 邮件任务进入死信队列:', {
+          this.logger.error({
+            event: 'rabbitmq.message_dead_lettered',
             eventId: payload.eventId,
-            email: payload.email,
-            attempts,
+            queue: this.mailQueueService.deadLetterQueue,
+            attempts: nextAttempts,
             errorMessage,
           });
         } else {
           await this.mailQueueService.publishRetry(
             payload,
-            attempts,
+            nextAttempts,
             errorMessage,
           );
-          console.warn('[MailQueue] 邮件任务稍后重试:', {
+          this.logger.warn({
+            event: 'rabbitmq.message_retry_scheduled',
             eventId: payload.eventId,
-            email: payload.email,
-            attempts,
+            queue: this.mailQueueService.retryQueue,
+            attempts: nextAttempts,
             errorMessage,
           });
         }
         channel.ack(message);
       } catch (publishError) {
-        console.error('[MailQueue] 发布重试/死信失败:', publishError);
+        this.logger.error({
+          event: 'rabbitmq.retry_publish_failed',
+          eventId: payload.eventId,
+          queue: this.mailQueueService.queue,
+          attempts: nextAttempts,
+          err: publishError,
+        });
         channel.nack(message, false, true);
       }
     }
   }
 
-  private async sendVerificationEmail(payload: MailVerificationSendMessage) {
+  private async sendVerificationEmail(
+    payload: MailVerificationSendMessage,
+    attempts: number,
+  ) {
     const sentKey = this.getSentKey(payload.eventId);
     const sent = await this.redisService.get(sentKey);
     if (sent) {
-      console.log('[MailQueue] 邮件任务已处理，跳过重复消费:', payload.eventId);
+      this.logger.log({
+        event: 'rabbitmq.duplicate_skipped',
+        eventId: payload.eventId,
+        queue: this.mailQueueService.queue,
+        attempts,
+      });
       return;
     }
 
     const storedCode = await this.redisService.get(payload.codeKey);
     if (!storedCode) {
-      console.warn('[MailQueue] 验证码已过期或不存在，跳过邮件发送:', {
+      this.logger.warn({
+        event: 'rabbitmq.expired_message_skipped',
         eventId: payload.eventId,
-        email: payload.email,
+        queue: this.mailQueueService.queue,
+        attempts,
       });
       await this.redisService.set(sentKey, 'expired', 10 * 60);
       return;
     }
 
     if (storedCode !== payload.code) {
-      console.warn('[MailQueue] 验证码已被新请求覆盖，跳过旧邮件发送:', {
+      this.logger.warn({
+        event: 'rabbitmq.superseded_message_skipped',
         eventId: payload.eventId,
-        email: payload.email,
+        queue: this.mailQueueService.queue,
+        attempts,
       });
       await this.redisService.set(sentKey, 'superseded', 10 * 60);
       return;
@@ -134,13 +170,24 @@ export class MailQueueConsumer implements OnModuleInit {
         !payload.code ||
         !payload.codeKey
       ) {
-        console.error('[MailQueue] 邮件任务消息格式错误:', payload);
+        this.logger.error({
+          event: 'rabbitmq.invalid_message',
+          eventId: message.properties.messageId,
+          queue: this.mailQueueService.queue,
+          attempts: this.getAttempts(message),
+        });
         return null;
       }
 
       return payload;
     } catch (error) {
-      console.error('[MailQueue] 邮件任务消息解析失败:', error);
+      this.logger.error({
+        event: 'rabbitmq.message_parse_failed',
+        eventId: message.properties.messageId,
+        queue: this.mailQueueService.queue,
+        attempts: this.getAttempts(message),
+        err: error,
+      });
       return null;
     }
   }

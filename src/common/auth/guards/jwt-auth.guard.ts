@@ -51,6 +51,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       throw new UnauthorizedException('缺少 Authorization 请求头');
     }
 
-    throw new UnauthorizedException(info?.message || '认证失败，请重新登录');
+    throw new UnauthorizedException('认证失败，请重新登录');
   }
 }
