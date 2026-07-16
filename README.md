@@ -37,7 +37,7 @@
 ├── config/                 # 应用、Redis 和环境配置
 ├── docker/                 # Redis、RabbitMQ、MinIO 本地依赖
 ├── docs/                   # API、设计文档、故障复盘和接入说明
-├── examples/               # 客户端可靠消息示例
+├── examples/               # 客户端集成示例及使用说明
 ├── prisma/
 │   ├── migrations/         # Prisma 数据库迁移
 │   ├── repairs/            # 显式执行的数据库修复/核验 SQL

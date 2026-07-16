@@ -441,7 +441,7 @@ Web 可用：
 仓库里提供了一个框架无关的参考实现：
 
 ```text
-examples/frontend/reliable-chat-client.ts
+examples/reliable-messaging/reliable-chat-client.ts
 ```
 
 它包含：
@@ -454,7 +454,7 @@ examples/frontend/reliable-chat-client.ts
 - `message:delivered`
 - 消息去重
 
-这个文件不参与后端编译，可以直接复制到前端项目再按实际状态管理改造。
+这个文件不参与后端编译。使用前请先阅读同目录的 `README.md`，确认依赖、HTTP 基址和 Socket.IO namespace，再复制到前端项目或按实际状态管理方式改造。
 
 ---
 
