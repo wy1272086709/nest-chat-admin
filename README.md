@@ -225,6 +225,37 @@ Authorization: Bearer <access-token>
 
 ## 生产部署
 
+### Docker 镜像
+
+仓库根目录提供多阶段构建的 `Dockerfile`：
+
+```bash
+docker build -t nest-admin-chat:latest .
+```
+
+容器只包含编译产物、Prisma Client 和生产依赖，并使用非 root 用户运行。启动时通过环境变量或 Docker Secret 注入配置，不要把 `.env` 复制进镜像：
+
+```bash
+docker run --rm \
+  --name nest-admin-chat \
+  --env-file .env \
+  -p 3000:3000 \
+  nest-admin-chat:latest
+```
+
+数据库迁移应作为部署阶段的独立任务执行，而不是每个应用容器启动时自动执行：
+
+```bash
+docker run --rm \
+  --env-file .env \
+  nest-admin-chat:latest \
+  pnpm prisma:migrate:deploy
+```
+
+容器内的 HTTP 和 Socket.IO 共用 `3000` 端口。若使用 Kubernetes 或 Docker Compose，应为 PostgreSQL、Redis、RabbitMQ 和 MinIO 配置独立服务地址，不能使用容器内的 `localhost`。
+
+### 直接部署
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm prisma:generate
