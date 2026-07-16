@@ -15,18 +15,18 @@ services:
     image: elestio/minio:${MINIO_VERSION_TAG:-latest}
     restart: always
     env_file:
-      - ../.env
+      - ../${ENV_FILE:-.env}
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-${ADMIN_LOGIN:-admin}}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-${ADMIN_PASSWORD:-admin123456}}
-      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
-      MINIO_SERVER_URL: http://localhost:9000
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
+      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-http://localhost:9000}
     command: server /data --console-address ':9001'
     volumes:
       - ./minio-data/:/var/lib/minio/data/
     ports:
-      - '127.0.0.1:9000:9000'
-      - '127.0.0.1:9001:9001'
+      - '${MINIO_HOST_BIND:-127.0.0.1}:9000:9000'
+      - '${MINIO_HOST_BIND:-127.0.0.1}:9001:9001'
     healthcheck:
       test: ['CMD-SHELL', 'curl -f http://localhost:9000/minio/health/live']
       interval: 10s
@@ -39,7 +39,7 @@ services:
     image: redis:${REDIS_VERSION_TAG:-7}
     restart: always
     env_file:
-      - ../.env
+      - ../${ENV_FILE:-.env}
     command:
       - sh
       - -c
@@ -47,7 +47,7 @@ services:
     volumes:
       - ./redis-data/:/var/lib/redis/data/
     ports:
-      - '127.0.0.1:6379:6379'
+      - '${REDIS_HOST_BIND:-127.0.0.1}:6379:6379'
     healthcheck:
       test:
         [
@@ -64,7 +64,7 @@ services:
     image: rabbitmq:${RABBITMQ_VERSION_TAG:-3-management}
     restart: always
     env_file:
-      - ../.env
+      - ../${ENV_FILE:-.env}
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-${ADMIN_LOGIN:-admin}}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-${ADMIN_PASSWORD:-123456}}
@@ -72,8 +72,8 @@ services:
       - ./rabbitmq-data/:/var/lib/rabbitmq/data/
       - ./rabbitmq-log/:/var/log/rabbitmq/
     ports:
-      - '127.0.0.1:5672:5672'
-      - '127.0.0.1:15672:15672'
+      - '${RABBITMQ_HOST_BIND:-127.0.0.1}:5672:5672'
+      - '${RABBITMQ_HOST_BIND:-127.0.0.1}:15672:15672'
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 10s
