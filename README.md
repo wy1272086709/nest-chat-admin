@@ -233,11 +233,11 @@ Authorization: Bearer <access-token>
 docker build -t nest-admin-chat:latest .
 ```
 
-Dockerfile 默认通过国内 npm 镜像安装 pnpm 和项目依赖。如该镜像在部署网络中不可用，可在构建时切换到官方源：
+Dockerfile 默认通过 npm 官方源安装 pnpm 和项目依赖。如果部署环境访问官方源较慢，可在构建时切换到国内镜像：
 
 ```bash
 docker build \
-  --build-arg NPM_REGISTRY=https://registry.npmjs.org \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
   -t nest-admin-chat:latest .
 ```
 

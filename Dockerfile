@@ -3,7 +3,7 @@
 FROM node:20-bookworm AS base
 
 ARG PNPM_VERSION=10.34.3
-ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG NPM_REGISTRY=https://registry.npmjs.org
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
