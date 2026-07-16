@@ -2,10 +2,18 @@
 
 FROM node:20-bookworm AS base
 
+ARG PNPM_VERSION=10.34.3
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+ENV npm_config_registry=$NPM_REGISTRY
 
-RUN corepack enable
+# Corepack 对部分 npm 镜像的 pnpm 元数据接口兼容性不稳定，
+# 通过 npm 安装锁定版本，并让 pnpm 本体和项目依赖共用同一镜像源。
+RUN npm install --global "pnpm@${PNPM_VERSION}" --registry="${NPM_REGISTRY}" \
+    && pnpm config set registry "${NPM_REGISTRY}" \
+    && pnpm config set store-dir /pnpm/store
 
 WORKDIR /app
 

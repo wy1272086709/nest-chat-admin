@@ -233,6 +233,16 @@ Authorization: Bearer <access-token>
 docker build -t nest-admin-chat:latest .
 ```
 
+Dockerfile 默认通过国内 npm 镜像安装 pnpm 和项目依赖。如该镜像在部署网络中不可用，可在构建时切换到官方源：
+
+```bash
+docker build \
+  --build-arg NPM_REGISTRY=https://registry.npmjs.org \
+  -t nest-admin-chat:latest .
+```
+
+也可以通过 `PNPM_VERSION` 覆盖 pnpm 版本，但通常应保持与 `package.json` 的 `packageManager` 一致。
+
 容器只包含编译产物、Prisma Client 和生产依赖，并使用非 root 用户运行。启动时通过环境变量或 Docker Secret 注入配置，不要把 `.env` 复制进镜像：
 
 ```bash
