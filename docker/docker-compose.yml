@@ -11,6 +11,30 @@ x-logging: &default-logging
     max-file: '3'
 
 services:
+  minio:
+    image: elestio/minio:${MINIO_VERSION_TAG:-latest}
+    restart: always
+    env_file:
+      - ../${ENV_FILE:-.env}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-${ADMIN_LOGIN:-admin}}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-${ADMIN_PASSWORD:-admin123456}}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://47.122.112.109:9001}
+      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-http://47.122.112.109:9000}
+    command: server /data --console-address ':9001'
+    volumes:
+      - ./minio-data/:/var/lib/minio/data/
+    ports:
+      - '${MINIO_HOST_BIND:-127.0.0.1}:9000:9000'
+      - '${MINIO_HOST_BIND:-127.0.0.1}:9001:9001'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:9000/minio/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
   redis:
     image: redis:${REDIS_VERSION_TAG:-7}
     restart: always
