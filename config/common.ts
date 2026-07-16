@@ -72,12 +72,12 @@ export default () => ({
       process.env.MINIO_ACCESS_KEY ??
       process.env.MINIO_ROOT_USER ??
       process.env.ADMIN_LOGIN ??
-      'minioadmin',
+      'admin',
     secretKey:
       process.env.MINIO_SECRET_KEY ??
       process.env.MINIO_ROOT_PASSWORD ??
       process.env.ADMIN_PASSWORD ??
-      'minioadmin',
+      'admin123456',
   },
   rabbitmq: {
     url: buildRabbitmqUrl(),
