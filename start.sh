@@ -17,6 +17,7 @@ docker run --rm \
 docker run -d \
   --name nest-admin-chat \
   --restart unless-stopped \
+  -p 3000:3000 \
   --network common-network \
   --env-file .env \
   nest-admin-chat:latest
