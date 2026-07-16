@@ -13,7 +13,7 @@ x-logging: &default-logging
 services:
   minio:
     image: elestio/minio:${MINIO_VERSION_TAG:-latest}
-    restart: 'on-failure:5'
+    restart: always
     env_file:
       - ../.env
     environment:
