@@ -23,5 +23,8 @@ lerna-debug.log*
 .temp
 .tmp
 
-# docker files
-/docker
+# Docker runtime data
+/docker/minio-data/
+/docker/redis-data/
+/docker/rabbitmq-data/
+/docker/rabbitmq-log/
