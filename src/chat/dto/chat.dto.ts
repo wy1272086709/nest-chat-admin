@@ -1,6 +1,17 @@
 import { MessageType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 export class CreateGroupRoomDto {
   @IsNotEmpty({ message: '群聊名称不能为空' })
@@ -153,4 +164,20 @@ export class DeliveredMessageDto extends RoomIdDto {
   @IsNotEmpty({ message: '消息ID不能为空' })
   @IsString({ message: '消息ID必须是字符串' })
   messageId: string;
+}
+
+export class ChatAiSummaryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '消息数量必须是整数' })
+  @Min(1)
+  @Max(100)
+  messageLimit?: number;
+}
+
+export class ChatAiReplySuggestionsDto extends ChatAiSummaryDto {
+  @IsOptional()
+  @IsString({ message: '草稿必须是字符串' })
+  @MaxLength(2000, { message: '草稿不能超过 2000 个字符' })
+  draft?: string;
 }

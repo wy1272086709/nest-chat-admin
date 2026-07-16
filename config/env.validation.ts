@@ -1,7 +1,9 @@
 import Joi from 'joi';
 
 export const envValidationSchema = Joi.object({
-  NODE_ENV: Joi.string().valid('development', 'production').default('development'),
+  NODE_ENV: Joi.string()
+    .valid('development', 'production')
+    .default('development'),
   APP_NAME: Joi.string().default('nextjs-server'),
   APP_PORT: Joi.number().port().default(3000),
   APP_API_PREFIX: Joi.string()
@@ -24,12 +26,33 @@ export const envValidationSchema = Joi.object({
   REDIS_PASSWORD: Joi.string().allow('').optional(),
   REDIS_DB: Joi.number().integer().min(0).default(0),
 
-  LOG_LEVEL: Joi.string().valid('fatal', 'error', 'warn', 'info', 'debug').default('info'),
+  OPENAI_API_KEY: Joi.string().allow('').optional(),
+  OPENAI_BASE_URL: Joi.string().uri().default('https://api.openai.com/v1'),
+  MODEL_NAME: Joi.string().default('gpt-4.1-mini'),
+  AI_API_MODE: Joi.string()
+    .valid('auto', 'responses', 'chat-completions')
+    .default('auto'),
+  AI_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
+  AI_MAX_INPUT_CHARACTERS: Joi.number().integer().min(1000).default(30000),
+  AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().min(0).default(5000),
+
+  LOG_LEVEL: Joi.string()
+    .valid('fatal', 'error', 'warn', 'info', 'debug')
+    .default('info'),
   LOG_DIR: Joi.string().default('logs'),
-  LOG_CONSOLE_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  LOG_CONSOLE_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(true),
   LOG_FILE_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
-  LOG_HEALTH_LOG_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
-  LOG_DEPENDENCY_CHECK_INTERVAL_MS: Joi.number().integer().min(1000).default(30000),
+  LOG_HEALTH_LOG_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  LOG_DEPENDENCY_CHECK_INTERVAL_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(30000),
   LOG_MAX_FILE_SIZE_MB: Joi.number().min(1).default(20),
   LOG_RETENTION_DAYS: Joi.number().integer().min(1).default(30),
 });

@@ -85,11 +85,16 @@ export default () => ({
     mailVerificationRetryDelayMs: Number(
       process.env.MAIL_RETRY_DELAY_MS ?? 10000,
     ),
-    mailVerificationMaxRetry: Number(
-      process.env.MAIL_MAX_RETRY ?? 3,
-    ),
-    mailVerificationPrefetch: Number(
-      process.env.MAIL_PREFETCH ?? 5,
-    ),
+    mailVerificationMaxRetry: Number(process.env.MAIL_MAX_RETRY ?? 3),
+    mailVerificationPrefetch: Number(process.env.MAIL_PREFETCH ?? 5),
+  },
+  ai: {
+    apiKey: process.env.OPENAI_API_KEY,
+    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+    model: process.env.MODEL_NAME ?? 'gpt-4.1-mini',
+    apiMode: process.env.AI_API_MODE ?? 'auto',
+    timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 30000),
+    maxInputCharacters: Number(process.env.AI_MAX_INPUT_CHARACTERS ?? 30000),
+    rateLimitWindowMs: Number(process.env.AI_RATE_LIMIT_WINDOW_MS ?? 5000),
   },
 });
