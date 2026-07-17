@@ -89,6 +89,8 @@ export const MAIL_VERIFICATION_TOPOLOGY = {
 
 ## 后续聊天消息审核
 
+RabbitMQ 消费者未注册、连接恢复与 Channel 生命周期的完整故障复盘见 [rabbitmq-consumer-recovery-retrospective.md](./rabbitmq-consumer-recovery-retrospective.md)。
+
 聊天审核可以继续使用共享 Topic Exchange，但应使用独立 Queue 和 Routing Key：
 
 ```ts
@@ -131,4 +133,3 @@ export const CHAT_MODERATION_TOPOLOGY = {
 > RabbitMQ 第一版把所有 Exchange、Queue 和 Routing Key 都放进环境变量，配置看起来灵活，但这些值实际上是 Producer 与 Consumer 之间的内部协议。分别配置反而可能导致路由不一致，而且 `.env` 很难维护。
 
 > 我把连接地址、凭据、重试次数和 Prefetch 保留为环境配置，把拓扑名称收敛到 TypeScript 常量并纳入版本控制。邮件和未来聊天审核共享 Topic Exchange，但使用各自独立的 Queue、Routing Key、重试队列和 DLQ。这样既降低配置复杂度，也保留了 RabbitMQ 对多业务事件和多消费者的扩展能力。
-

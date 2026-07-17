@@ -148,6 +148,15 @@ AI_API_MODE="auto"
 AI_TIMEOUT_MS=30000
 AI_MAX_INPUT_CHARACTERS=30000
 AI_RATE_LIMIT_WINDOW_MS=5000
+AI_RATE_LIMIT_MAX_REQUESTS=1
+AI_MODERATION_ENABLED=true
+AI_MODERATION_MODEL=""
+AI_MODERATION_TIMEOUT_MS=5000
+AI_MODERATION_MAX_CHARACTERS=4000
+AI_MODERATION_MODE="async"
+AI_MODERATION_POLICY_VERSION="v1"
+AI_MODERATION_ACTIONS_ENABLED=false
+AI_MODERATION_ENFORCEMENT_ENABLED=false
 ```
 
 `AI_API_MODE` 支持：
@@ -164,6 +173,14 @@ POST /api/chat/rooms/:roomId/ai/reply-suggestions
 ```
 
 后端只向模型提交经过筛选的发送者名称、时间、消息类型和文本。文件及媒体消息只提交文件名，不上传文件二进制。详细约束见 `docs/chat-ai-summary-reply-design.md`。
+
+限流由 Redis 在所有应用实例间共享，维度为用户、房间和 AI 功能；以上配置表示每 5 秒最多请求 1 次。每次实际模型调用都会把模型、输入/输出 token、耗时和状态码写入 `ai_usage_logs`，不保存 Prompt 或聊天正文。
+
+当前完整设计、限流代码含义、错误行为和统计 SQL 见 `docs/chat-ai-design-and-rate-limit.md`。
+
+默认使用数据库 Outbox 和 RabbitMQ 异步审核文本消息，不让模型延迟阻塞聊天。审核结果支持 `PASS / REVIEW / REJECT / DEGRADED`；自动撤回和自动处罚默认关闭，应在影子审核验证误判率后分阶段启用。运行配置和行为见 `docs/chat-ai-message-moderation.md`。
+
+RabbitMQ 审核架构、风险与运维要求见 `docs/rabbitmq-chat-moderation-design.md`。
 
 ## API 与实时事件
 
@@ -280,7 +297,7 @@ pnpm start:prod
 - 更换 Seed 默认账号，或禁止在生产执行 Seed。
 - 为 PostgreSQL、Redis、RabbitMQ 和 MinIO 配置持久化、备份与访问控制。
 - 通过反向代理启用 HTTPS 和 WebSocket Upgrade。
-- 根据部署拓扑调整 AI 限流；当前进程内限流不适用于多实例全局配额。
+- 根据实际调用量调整 Redis AI 限流窗口、请求次数和内容审核超时。
 
 ## Codex 协作
 

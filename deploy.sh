@@ -51,6 +51,6 @@ echo "==> [$ENV] 启动应用 ($CONTAINER)"
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
-  --network host \
+  --network common-network \
   --env-file "$ENV_FILE" \
   "$IMAGE"

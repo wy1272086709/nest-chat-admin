@@ -281,6 +281,19 @@ socket.on('message:new', (message) => {
   upsertMessage(message);
   markDelivered(message);
 });
+
+socket.on('message:moderated', ({ messageId, roomId }) => {
+  removeMessageFromLocalState(roomId, messageId);
+  void syncRoomMessages(roomId);
+});
+
+socket.on('moderation:warning', ({ message }) => {
+  showWarning(message);
+});
+
+socket.on('moderation:restricted', ({ expiresAt }) => {
+  disableMessageSendingUntil(expiresAt);
+});
 ```
 
 ### 5.2 消息去重

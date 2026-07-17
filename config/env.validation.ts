@@ -36,6 +36,55 @@ export const envValidationSchema = Joi.object({
   AI_MAX_INPUT_CHARACTERS: Joi.number().integer().min(1000).default(30000),
   AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().min(0).default(5000),
   AI_RATE_LIMIT_MAX_REQUESTS: Joi.number().integer().min(1).default(2),
+  AI_MODERATION_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(true),
+  AI_MODERATION_MODEL: Joi.string().allow('').optional(),
+  AI_MODERATION_TIMEOUT_MS: Joi.number().integer().min(1000).default(5000),
+  AI_MODERATION_MAX_CHARACTERS: Joi.number().integer().min(100).default(4000),
+  AI_MODERATION_MODE: Joi.string()
+    .valid('sync', 'async', 'shadow', 'off')
+    .default('async'),
+  AI_MODERATION_POLICY_VERSION: Joi.string().default('v1'),
+  AI_MODERATION_ACTIONS_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  AI_MODERATION_ENFORCEMENT_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
+  AI_MODERATION_VIOLATION_WINDOW_MS: Joi.number()
+    .integer()
+    .min(60000)
+    .default(86400000),
+  AI_MODERATION_WARNING_SCORE: Joi.number().integer().min(1).default(3),
+  AI_MODERATION_MUTE_SCORE: Joi.number().integer().min(1).default(6),
+  AI_MODERATION_MUTE_DURATION_MS: Joi.number()
+    .integer()
+    .min(60000)
+    .default(600000),
+
+  CHAT_MODERATION_PUBLISHER_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(true),
+  CHAT_MODERATION_CONSUMER_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(true),
+  CHAT_MODERATION_RETRY_DELAY_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(10000),
+  CHAT_MODERATION_MAX_RETRY: Joi.number().integer().min(1).default(3),
+  CHAT_MODERATION_PREFETCH: Joi.number().integer().min(1).default(5),
+  MODERATION_OUTBOX_POLL_MS: Joi.number().integer().min(100).default(1000),
+  MODERATION_OUTBOX_BATCH_SIZE: Joi.number().integer().min(1).default(50),
+  MODERATION_OUTBOX_LOCK_MS: Joi.number().integer().min(1000).default(30000),
+  MODERATION_OUTBOX_MAX_ATTEMPTS: Joi.number().integer().min(1).default(10),
+  MODERATION_OUTBOX_RETENTION_DAYS: Joi.number().integer().min(1).default(7),
 
   LOG_LEVEL: Joi.string()
     .valid('fatal', 'error', 'warn', 'info', 'debug')

@@ -5,7 +5,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { MessageType, Prisma } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '@/common/database/services/prisma.service';
+import {
+  ChatModerationService,
+  MessageModerationRejectedException,
+  ModerationResult,
+} from './chat-moderation.service';
+import {
+  CHAT_MODERATION_EVENT_TYPE,
+  CHAT_MODERATION_EVENT_VERSION,
+  ChatModerationMode,
+  MessageModerationRequestedV1,
+} from './chat-moderation.types';
+import { ChatRestrictionService } from './chat-restriction.service';
 import {
   CreateGroupRoomDto,
   DeliveredMessageDto,
@@ -53,7 +67,12 @@ type ConversationSnapshotRow = {
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly moderationService: ChatModerationService,
+    private readonly config: ConfigService,
+    private readonly restrictions: ChatRestrictionService,
+  ) {}
 
   private getPrivateRoomName(userAId: string, userBId: string) {
     return [userAId, userBId].sort().join(':');
@@ -204,25 +223,105 @@ export class ChatService {
       };
     }
 
-    try {
-      const message = await this.prisma.message.create({
-        data: {
-          roomId: dto.roomId,
-          senderId,
-          clientMessageId: dto.clientMessageId,
-          content: dto.content,
-          messageType: dto.messageType ?? MessageType.TEXT,
-          fileUrl: dto.fileUrl,
-          fileName: dto.fileName,
-          fileSize: dto.fileSize,
-          fileType: dto.fileType,
-          thumbnailUrl: dto.thumbnailUrl,
-          mediaWidth: dto.mediaWidth,
-          mediaHeight: dto.mediaHeight,
-          duration: dto.duration,
-        },
-        include: messageInclude,
+    await this.restrictions.assertCanSend(senderId);
+
+    if (
+      await this.moderationService.wasRejected(senderId, dto.clientMessageId)
+    ) {
+      throw new MessageModerationRejectedException();
+    }
+
+    const moderationMode = this.getModerationMode();
+    let moderation: ModerationResult | undefined;
+    const messageType = dto.messageType ?? MessageType.TEXT;
+    if (
+      moderationMode === 'sync' &&
+      messageType === MessageType.TEXT &&
+      dto.content?.trim()
+    ) {
+      moderation = await this.moderationService.moderate({
+        content: dto.content,
+        userId: senderId,
+        roomId: dto.roomId,
       });
+      if (moderation.decision === 'REJECT') {
+        await this.moderationService.recordResult({
+          userId: senderId,
+          roomId: dto.roomId,
+          clientMessageId: dto.clientMessageId,
+          result: moderation,
+        });
+        throw new MessageModerationRejectedException();
+      }
+    }
+
+    try {
+      const shouldQueueModeration =
+        (moderationMode === 'async' || moderationMode === 'shadow') &&
+        messageType === MessageType.TEXT &&
+        Boolean(dto.content?.trim());
+      const eventId = shouldQueueModeration ? randomUUID() : undefined;
+      const policyVersion = this.config.get<string>(
+        'ai.moderationPolicyVersion',
+        'v1',
+      );
+      const message = await this.prisma.$transaction(async (tx) => {
+        const createdMessage = await tx.message.create({
+          data: {
+            roomId: dto.roomId,
+            senderId,
+            clientMessageId: dto.clientMessageId,
+            content: dto.content,
+            messageType,
+            fileUrl: dto.fileUrl,
+            fileName: dto.fileName,
+            fileSize: dto.fileSize,
+            fileType: dto.fileType,
+            thumbnailUrl: dto.thumbnailUrl,
+            mediaWidth: dto.mediaWidth,
+            mediaHeight: dto.mediaHeight,
+            duration: dto.duration,
+            moderationStatus: shouldQueueModeration
+              ? 'PENDING'
+              : this.getSynchronousModerationStatus(moderation),
+            moderatedAt: moderation ? new Date() : undefined,
+          },
+          include: messageInclude,
+        });
+
+        if (eventId) {
+          const event: MessageModerationRequestedV1 = {
+            eventId,
+            eventType: CHAT_MODERATION_EVENT_TYPE,
+            version: CHAT_MODERATION_EVENT_VERSION,
+            messageId: createdMessage.id,
+            userId: senderId,
+            roomId: dto.roomId,
+            requestedAt: new Date().toISOString(),
+            policyVersion,
+          };
+          await tx.moderationOutbox.create({
+            data: {
+              id: eventId,
+              eventType: CHAT_MODERATION_EVENT_TYPE,
+              aggregateId: createdMessage.id,
+              payload: event,
+            },
+          });
+        }
+
+        return createdMessage;
+      });
+
+      if (moderation) {
+        await this.moderationService.recordResult({
+          userId: senderId,
+          roomId: dto.roomId,
+          messageId: message.id,
+          clientMessageId: dto.clientMessageId,
+          result: moderation,
+        });
+      }
 
       return {
         message,
@@ -720,6 +819,18 @@ export class ChatService {
       },
       include: messageInclude,
     });
+  }
+
+  private getModerationMode(): ChatModerationMode {
+    if (!this.config.get<boolean>('ai.moderationEnabled', true)) return 'off';
+    return this.config.get<ChatModerationMode>('ai.moderationMode', 'async');
+  }
+
+  private getSynchronousModerationStatus(moderation?: ModerationResult) {
+    if (!moderation) return 'NOT_APPLICABLE' as const;
+    if (moderation.decision === 'PASS') return 'PASSED' as const;
+    if (moderation.decision === 'REVIEW') return 'REVIEW' as const;
+    return 'DEGRADED' as const;
   }
 
   private async upsertDeliveredState(

@@ -54,6 +54,28 @@ enum FavoriteType {
   CHAT_RECORD
 }
 
+enum MessageModerationStatus {
+  PENDING
+  PASSED
+  REVIEW
+  REJECTED
+  DEGRADED
+  NOT_APPLICABLE
+}
+
+enum ModerationOutboxStatus {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  RETRY
+  FAILED
+}
+
+enum ChatRestrictionStatus {
+  ACTIVE
+  REVOKED
+}
+
 // 通知类型
 enum NotificationType {
   FRIEND_REQUEST // 好友申请
@@ -85,15 +107,18 @@ model ChatUser {
   status UserStatus @default(ACTIVE)
 
   // 聊天关系
-  sentMessages      Message[]          @relation("MessageSender")
-  createdRooms      ChatRoom[]         @relation("RoomCreator")
+  sentMessages      Message[]             @relation("MessageSender")
+  createdRooms      ChatRoom[]            @relation("RoomCreator")
   roomMembers       RoomMember[]
-  ownedRooms        ChatRoom[]         @relation("RoomOwner")
+  ownedRooms        ChatRoom[]            @relation("RoomOwner")
   uploadedFiles     FileStorage[]
   articles          Article[] // 用户发表的文章
   chatClearStates   ChatClearState[]
   messageSyncStates MessageSyncState[]
   aiUsageLogs       AiUsageLog[]
+  moderationRecords MessageModeration[]
+  violations        UserViolation[]
+  restrictions      ChatUserRestriction[]
 
   // 通知和收藏关系
   receivedNotifications Notification[]   @relation("NotificationReceiver")
@@ -215,13 +240,14 @@ model ChatRoom {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  creator           ChatUser           @relation("RoomCreator", fields: [createdBy], references: [id])
-  owner             ChatUser           @relation("RoomOwner", fields: [ownerId], references: [id])
+  creator           ChatUser            @relation("RoomCreator", fields: [createdBy], references: [id])
+  owner             ChatUser            @relation("RoomOwner", fields: [ownerId], references: [id])
   messages          Message[]
   members           RoomMember[]
   clearStates       ChatClearState[]
   messageSyncStates MessageSyncState[]
   aiUsageLogs       AiUsageLog[]
+  moderationRecords MessageModeration[]
 
   // 管理员字段
   isArchived Boolean @default(false) // 是否已归档
@@ -270,39 +296,131 @@ model RoomMember {
 }
 
 model Message {
-  id              String      @id @default(cuid())
-  roomId          String
-  senderId        String
-  clientMessageId String? // 客户端生成的消息ID，用于断线重试幂等
-  content         String?
-  messageType     MessageType @default(TEXT)
+  id               String                  @id @default(cuid())
+  roomId           String
+  senderId         String
+  clientMessageId  String? // 客户端生成的消息ID，用于断线重试幂等
+  content          String?
+  messageType      MessageType             @default(TEXT)
   // 文件分享字段
-  fileUrl         String? // 文件访问URL
-  fileName        String? // 原始文件名
-  fileSize        Int? // 文件大小（字节）
-  fileType        String? // MIME类型
+  fileUrl          String? // 文件访问URL
+  fileName         String? // 原始文件名
+  fileSize         Int? // 文件大小（字节）
+  fileType         String? // MIME类型
   // 媒体扩展信息（图片/音视频）
-  thumbnailUrl    String? // 缩略图/封面 URL（图片、视频封面、文件预览）
-  mediaWidth      Int? // 媒体宽度（图片/视频，px）
-  mediaHeight     Int? // 媒体高度（图片/视频，px）
-  duration        Int? // 时长（音/视频，秒）
+  thumbnailUrl     String? // 缩略图/封面 URL（图片、视频封面、文件预览）
+  mediaWidth       Int? // 媒体宽度（图片/视频，px）
+  mediaHeight      Int? // 媒体高度（图片/视频，px）
+  duration         Int? // 时长（音/视频，秒）
   // 其他字段
-  isEdited        Boolean     @default(false)
-  editedAt        DateTime?
-  isDeleted       Boolean     @default(false) // 软删除
-  deletedAt       DateTime?
-  createdAt       DateTime    @default(now())
+  isEdited         Boolean                 @default(false)
+  editedAt         DateTime?
+  isDeleted        Boolean                 @default(false) // 软删除
+  deletedAt        DateTime?
+  createdAt        DateTime                @default(now())
+  moderationStatus MessageModerationStatus @default(NOT_APPLICABLE)
+  moderatedAt      DateTime?
 
   room   ChatRoom @relation(fields: [roomId], references: [id])
   sender ChatUser @relation("MessageSender", fields: [senderId], references: [id])
 
   // 搜索索引（只存6个月内）
-  searchIndex MessageSearchIndex?
+  searchIndex       MessageSearchIndex?
+  moderationRecords MessageModeration[]
 
   @@unique([senderId, clientMessageId])
   @@index([roomId, createdAt])
   @@index([senderId, createdAt])
   @@map("chat_messages")
+}
+
+model MessageModeration {
+  id              String   @id @default(cuid())
+  userId          String
+  roomId          String
+  messageId       String?
+  clientMessageId String?
+  decision        String
+  categories      Json
+  confidence      Float?
+  reason          String?
+  reviewStatus    String
+  model           String?
+  statusCode      Int
+  durationMs      Int
+  eventId         String?  @unique
+  policyVersion   String   @default("v1")
+  createdAt       DateTime @default(now())
+
+  user      ChatUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room      ChatRoom       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  message   Message?       @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  violation UserViolation?
+
+  @@index([userId, createdAt])
+  @@index([roomId, createdAt])
+  @@index([decision, reviewStatus, createdAt])
+  @@index([messageId])
+  @@index([userId, clientMessageId])
+  @@map("message_moderations")
+}
+
+model UserViolation {
+  id            String   @id @default(cuid())
+  userId        String
+  messageId     String
+  moderationId  String   @unique
+  category      String
+  severity      Int
+  score         Int
+  policyVersion String
+  action        String?
+  createdAt     DateTime @default(now())
+
+  user       ChatUser          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moderation MessageModeration @relation(fields: [moderationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("user_violations")
+}
+
+model ChatUserRestriction {
+  id                 String                @id @default(cuid())
+  userId             String
+  type               String
+  status             ChatRestrictionStatus @default(ACTIVE)
+  startsAt           DateTime              @default(now())
+  expiresAt          DateTime
+  reason             String
+  sourceModerationId String                @unique
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  user ChatUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
+  @@map("chat_user_restrictions")
+}
+
+model ModerationOutbox {
+  id            String                 @id @default(cuid())
+  eventType     String
+  aggregateId   String
+  payload       Json
+  status        ModerationOutboxStatus @default(PENDING)
+  attempts      Int                    @default(0)
+  nextAttemptAt DateTime               @default(now())
+  lockedAt      DateTime?
+  lockedBy      String?
+  publishedAt   DateTime?
+  lastErrorCode String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@unique([aggregateId, eventType])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([lockedAt])
+  @@map("moderation_outbox")
 }
 
 model ChatClearState {

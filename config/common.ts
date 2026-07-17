@@ -87,6 +87,30 @@ export default () => ({
     ),
     mailVerificationMaxRetry: Number(process.env.MAIL_MAX_RETRY ?? 3),
     mailVerificationPrefetch: Number(process.env.MAIL_PREFETCH ?? 5),
+    chatModerationPublisherEnabled:
+      process.env.CHAT_MODERATION_PUBLISHER_ENABLED !== 'false',
+    chatModerationConsumerEnabled:
+      process.env.CHAT_MODERATION_CONSUMER_ENABLED !== 'false',
+    chatModerationRetryDelayMs: Number(
+      process.env.CHAT_MODERATION_RETRY_DELAY_MS ?? 10000,
+    ),
+    chatModerationMaxRetry: Number(process.env.CHAT_MODERATION_MAX_RETRY ?? 3),
+    chatModerationPrefetch: Number(process.env.CHAT_MODERATION_PREFETCH ?? 5),
+    moderationOutboxPollMs: Number(
+      process.env.MODERATION_OUTBOX_POLL_MS ?? 1000,
+    ),
+    moderationOutboxBatchSize: Number(
+      process.env.MODERATION_OUTBOX_BATCH_SIZE ?? 50,
+    ),
+    moderationOutboxLockMs: Number(
+      process.env.MODERATION_OUTBOX_LOCK_MS ?? 30000,
+    ),
+    moderationOutboxMaxAttempts: Number(
+      process.env.MODERATION_OUTBOX_MAX_ATTEMPTS ?? 10,
+    ),
+    moderationOutboxRetentionDays: Number(
+      process.env.MODERATION_OUTBOX_RETENTION_DAYS ?? 7,
+    ),
   },
   ai: {
     apiKey: process.env.OPENAI_API_KEY,
@@ -97,5 +121,27 @@ export default () => ({
     maxInputCharacters: Number(process.env.AI_MAX_INPUT_CHARACTERS ?? 30000),
     rateLimitWindowMs: Number(process.env.AI_RATE_LIMIT_WINDOW_MS ?? 5000),
     rateLimitMaxRequests: Number(process.env.AI_RATE_LIMIT_MAX_REQUESTS ?? 2),
+    moderationEnabled: process.env.AI_MODERATION_ENABLED !== 'false',
+    moderationModel: process.env.AI_MODERATION_MODEL ?? process.env.MODEL_NAME,
+    moderationTimeoutMs: Number(process.env.AI_MODERATION_TIMEOUT_MS ?? 5000),
+    moderationMaxCharacters: Number(
+      process.env.AI_MODERATION_MAX_CHARACTERS ?? 4000,
+    ),
+    moderationMode: process.env.AI_MODERATION_MODE ?? 'async',
+    moderationPolicyVersion: process.env.AI_MODERATION_POLICY_VERSION ?? 'v1',
+    moderationActionsEnabled:
+      process.env.AI_MODERATION_ACTIONS_ENABLED === 'true',
+    moderationEnforcementEnabled:
+      process.env.AI_MODERATION_ENFORCEMENT_ENABLED === 'true',
+    moderationViolationWindowMs: Number(
+      process.env.AI_MODERATION_VIOLATION_WINDOW_MS ?? 86400000,
+    ),
+    moderationWarningScore: Number(
+      process.env.AI_MODERATION_WARNING_SCORE ?? 3,
+    ),
+    moderationMuteScore: Number(process.env.AI_MODERATION_MUTE_SCORE ?? 6),
+    moderationMuteDurationMs: Number(
+      process.env.AI_MODERATION_MUTE_DURATION_MS ?? 600000,
+    ),
   },
 });

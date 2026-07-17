@@ -22,6 +22,8 @@ import {
   SyncMessagesDto,
 } from './dto/chat.dto';
 import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
+import { MessageModerationRejectedException } from './chat-moderation.service';
+import { ChatUserMutedException } from './chat-restriction.service';
 
 type AuthenticatedSocket = Socket & {
   data: {
@@ -143,6 +145,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { result: true, data: result.message };
     } catch (error) {
       this.logger.error(error);
+      if (
+        error instanceof MessageModerationRejectedException ||
+        error instanceof ChatUserMutedException
+      ) {
+        return { result: false, message: error.message };
+      }
       return { result: false, message: SERVICE_ERROR_MESSAGE };
     }
   }
@@ -177,6 +185,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { result: true, data: result.message };
     } catch (error) {
       this.logger.error(error);
+      if (
+        error instanceof MessageModerationRejectedException ||
+        error instanceof ChatUserMutedException
+      ) {
+        return { result: false, message: error.message };
+      }
       return { result: false, message: SERVICE_ERROR_MESSAGE };
     }
   }
