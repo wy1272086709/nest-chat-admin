@@ -25,8 +25,8 @@ services:
     volumes:
       - ./minio-data/:/var/lib/minio/data/
     ports:
-      - '${MINIO_HOST_BIND:-127.0.0.1}:9000:9000'
-      - '${MINIO_HOST_BIND:-127.0.0.1}:9001:9001'
+      - '9000:9000'
+      - '9001:9001'
     healthcheck:
       test: ['CMD-SHELL', 'curl -f http://localhost:9000/minio/health/live']
       interval: 10s
@@ -47,7 +47,7 @@ services:
     volumes:
       - ./redis-data/:/var/lib/redis/data/
     ports:
-      - '${REDIS_HOST_BIND:-127.0.0.1}:6379:6379'
+      - '6379:6379'
     healthcheck:
       test:
         [
@@ -72,8 +72,8 @@ services:
       - ./rabbitmq-data/:/var/lib/rabbitmq/data/
       - ./rabbitmq-log/:/var/log/rabbitmq/
     ports:
-      - '${RABBITMQ_HOST_BIND:-127.0.0.1}:5672:5672'
-      - '${RABBITMQ_HOST_BIND:-127.0.0.1}:15672:15672'
+      - '5672:5672'
+      - '15672:15672'
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 10s

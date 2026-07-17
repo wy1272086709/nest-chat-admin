@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Channel, ConsumeMessage } from 'amqplib';
 import { EmailService } from './email.service';
@@ -10,8 +15,12 @@ import { RabbitmqService } from './rabbitmq.service';
 import { RedisService } from './redis.service';
 
 @Injectable()
-export class MailQueueConsumer implements OnModuleInit {
+export class MailQueueConsumer implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MailQueueConsumer.name);
+  private startTimer?: NodeJS.Timeout;
+  private starting = false;
+  private started = false;
+  private stopped = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -28,26 +37,53 @@ export class MailQueueConsumer implements OnModuleInit {
     );
     if (!enabled) return;
 
+    await this.start();
+  }
+
+  onModuleDestroy() {
+    this.stopped = true;
+    if (this.startTimer) clearTimeout(this.startTimer);
+  }
+
+  private async start() {
+    if (this.started || this.starting || this.stopped) return;
+    this.starting = true;
     try {
       await this.mailQueueService.setupTopology();
-      await this.rabbitmqService.prefetch(
-        this.configService.get<number>('rabbitmq.mailVerificationPrefetch', 5),
-      );
       await this.rabbitmqService.consume(
         this.mailQueueService.queue,
         (message, channel) => this.handleMessage(message, channel),
+        {
+          prefetch: this.configService.get<number>(
+            'rabbitmq.mailVerificationPrefetch',
+            5,
+          ),
+        },
       );
       this.logger.log({
         event: 'rabbitmq.consumer_started',
         queue: this.mailQueueService.queue,
       });
+      this.started = true;
     } catch (error) {
       this.logger.error({
         event: 'rabbitmq.consumer_start_failed',
         queue: this.mailQueueService.queue,
         err: error,
       });
+      this.scheduleStartRetry();
+    } finally {
+      this.starting = false;
     }
+  }
+
+  private scheduleStartRetry() {
+    if (this.stopped || this.started || this.startTimer) return;
+    this.startTimer = setTimeout(() => {
+      this.startTimer = undefined;
+      void this.start();
+    }, 5000);
+    this.startTimer.unref();
   }
 
   private async handleMessage(message: ConsumeMessage, channel: Channel) {

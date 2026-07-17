@@ -1,11 +1,10 @@
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ===== 枚举定义 =====
@@ -57,50 +56,52 @@ enum FavoriteType {
 
 // 通知类型
 enum NotificationType {
-  FRIEND_REQUEST   // 好友申请
-  GROUP_INVITATION  // 群聊邀请
+  FRIEND_REQUEST // 好友申请
+  GROUP_INVITATION // 群聊邀请
 }
 
 // 通知处理结果
 enum NotificationResult {
-  PENDING   // 待处理
-  ACCEPTED  // 同意
-  REJECTED  // 拒绝
+  PENDING // 待处理
+  ACCEPTED // 同意
+  REJECTED // 拒绝
 }
 
 // ===== 聊天用户模型 =====
 model ChatUser {
-  id            String   @id @default(cuid())
-  username      String   @unique
-  email         String   @unique
-  nickname      String
-  passwordHash  String
-  avatarUrl     String?
-  bio           String?
-  lastLoginAt   DateTime?
-  lastSeenAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(cuid())
+  username     String    @unique
+  email        String    @unique
+  nickname     String
+  passwordHash String
+  avatarUrl    String?
+  bio          String?
+  lastLoginAt  DateTime?
+  lastSeenAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   // 聊天状态
-  status        UserStatus @default(ACTIVE)
+  status UserStatus @default(ACTIVE)
 
   // 聊天关系
-  sentMessages    Message[] @relation("MessageSender")
-  createdRooms    ChatRoom[] @relation("RoomCreator")
-  roomMembers     RoomMember[]
-  ownedRooms      ChatRoom[] @relation("RoomOwner")
-  uploadedFiles   FileStorage[]
-  articles        Article[]  // 用户发表的文章
-  chatClearStates ChatClearState[]
+  sentMessages      Message[]          @relation("MessageSender")
+  createdRooms      ChatRoom[]         @relation("RoomCreator")
+  roomMembers       RoomMember[]
+  ownedRooms        ChatRoom[]         @relation("RoomOwner")
+  uploadedFiles     FileStorage[]
+  articles          Article[] // 用户发表的文章
+  chatClearStates   ChatClearState[]
   messageSyncStates MessageSyncState[]
+  aiUsageLogs       AiUsageLog[]
 
   // 通知和收藏关系
-  receivedNotifications Notification[] @relation("NotificationReceiver")
-  sentNotifications     Notification[] @relation("NotificationSender")
-  favorites              Favorite[]
-  friendshipsSender       ChatFriendship[] @relation("FriendshipSender")
-  friendshipsReceiver       ChatFriendship[] @relation("FriendshipReceiver")
+  receivedNotifications Notification[]   @relation("NotificationReceiver")
+  sentNotifications     Notification[]   @relation("NotificationSender")
+  favorites             Favorite[]
+  friendshipsSender     ChatFriendship[] @relation("FriendshipSender")
+  friendshipsReceiver   ChatFriendship[] @relation("FriendshipReceiver")
+
   @@index([status, createdAt])
   @@index([lastSeenAt])
   @@map("chat_users")
@@ -108,24 +109,24 @@ model ChatUser {
 
 // ===== 管理后台用户模型 =====
 model AdminUser {
-  id            String   @id @default(cuid())
-  username      String   @unique
-  email         String   @unique
-  passwordHash  String
-  avatarUrl     String?
-  bio           String?
-  lastLoginAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(cuid())
+  username     String    @unique
+  email        String    @unique
+  passwordHash String
+  avatarUrl    String?
+  bio          String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   // 状态和角色
-  status        UserStatus @default(ACTIVE)
-  role          Role       @relation(fields: [roleId], references: [id])
-  roleId        String
+  status UserStatus @default(ACTIVE)
+  role   Role       @relation(fields: [roleId], references: [id])
+  roleId String
 
   // 管理后台关系
-  reviews       Review[]
-  auditLogs     AuditLog[]
+  reviews   Review[]
+  auditLogs AuditLog[]
 
   @@index([status, createdAt])
   @@map("admin_users")
@@ -133,8 +134,8 @@ model AdminUser {
 
 // 角色权限系统
 model Role {
-  id          String @id @default(cuid())
-  name        String @unique
+  id          String  @id @default(cuid())
+  name        String  @unique
   description String?
 
   permissions Permission[]
@@ -144,13 +145,13 @@ model Role {
 }
 
 model Permission {
-  id        String @id @default(cuid())
-  name      String
-  resource  String
-  action    String
+  id       String @id @default(cuid())
+  name     String
+  resource String
+  action   String
 
-  role      Role   @relation(fields: [roleId], references: [id])
-  roleId    String
+  role   Role   @relation(fields: [roleId], references: [id])
+  roleId String
 
   @@unique([resource, action])
   @@map("permissions")
@@ -158,32 +159,33 @@ model Permission {
 
 // ===== 管理后台模块 =====
 model Article {
-  id            String       @id @default(cuid())
+  id            String        @id @default(cuid())
   title         String
   content       String
   authorId      String
   status        ArticleStatus @default(DRAFT)
-  isAiGenerated Boolean      @default(false)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  isAiGenerated Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
   publishedAt   DateTime?
   reviewedAt    DateTime?
 
-  author        ChatUser     @relation(fields: [authorId], references: [id])
-  reviews       Review[]
+  author  ChatUser @relation(fields: [authorId], references: [id])
+  reviews Review[]
+
   @@map("articles")
 }
 
 model Review {
-  id        String       @id @default(cuid())
-  articleId String
+  id         String       @id @default(cuid())
+  articleId  String
   reviewerId String
-  status    ReviewStatus
-  comments  String?
-  createdAt DateTime     @default(now())
+  status     ReviewStatus
+  comments   String?
+  createdAt  DateTime     @default(now())
 
-  article   Article      @relation(fields: [articleId], references: [id])
-  reviewer  AdminUser    @relation(fields: [reviewerId], references: [id])
+  article  Article   @relation(fields: [articleId], references: [id])
+  reviewer AdminUser @relation(fields: [reviewerId], references: [id])
 
   @@map("reviews")
 }
@@ -197,47 +199,70 @@ model AuditLog {
   newValues  Json?
   createdAt  DateTime @default(now())
 
-  user       AdminUser     @relation(fields: [userId], references: [id])
+  user AdminUser @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
 }
 
 // ===== 聊天模块 =====
 model ChatRoom {
-  id            String       @id @default(cuid())
-  name          String
-  description   String?
-  maxMembers    Int?
-  createdBy     String
-  ownerId       String
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  maxMembers  Int?
+  createdBy   String
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  creator       ChatUser     @relation("RoomCreator", fields: [createdBy], references: [id])
-  owner         ChatUser     @relation("RoomOwner", fields: [ownerId], references: [id])
-  messages      Message[]
-  members       RoomMember[]
-  clearStates   ChatClearState[]
+  creator           ChatUser           @relation("RoomCreator", fields: [createdBy], references: [id])
+  owner             ChatUser           @relation("RoomOwner", fields: [ownerId], references: [id])
+  messages          Message[]
+  members           RoomMember[]
+  clearStates       ChatClearState[]
   messageSyncStates MessageSyncState[]
+  aiUsageLogs       AiUsageLog[]
 
   // 管理员字段
-  isArchived    Boolean      @default(false)  // 是否已归档
-  topic         String?      // 群聊主题/目的
+  isArchived Boolean @default(false) // 是否已归档
+  topic      String? // 群聊主题/目的
 
   @@map("chat_rooms")
 }
 
-model RoomMember {
-  id           String           @id @default(cuid())
-  roomId       String
+model AiUsageLog {
+  id           String   @id @default(cuid())
   userId       String
-  joinedAt     DateTime        @default(now())
-  role         MemberRole      @default(MEMBER)
-  status       MemberStatus    @default(ACTIVE)
-  lastReadAt   DateTime?        // 最后阅读时间
+  roomId       String
+  feature      String
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  totalTokens  Int      @default(0)
+  durationMs   Int
+  statusCode   Int
+  createdAt    DateTime @default(now())
 
-  room         ChatRoom         @relation(fields: [roomId], references: [id])
-  user         ChatUser         @relation(fields: [userId], references: [id])
+  user ChatUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([roomId, createdAt])
+  @@index([feature, createdAt])
+  @@map("ai_usage_logs")
+}
+
+model RoomMember {
+  id         String       @id @default(cuid())
+  roomId     String
+  userId     String
+  joinedAt   DateTime     @default(now())
+  role       MemberRole   @default(MEMBER)
+  status     MemberStatus @default(ACTIVE)
+  lastReadAt DateTime? // 最后阅读时间
+
+  room ChatRoom @relation(fields: [roomId], references: [id])
+  user ChatUser @relation(fields: [userId], references: [id])
 
   @@unique([roomId, userId])
   @@index([userId, status])
@@ -245,38 +270,38 @@ model RoomMember {
 }
 
 model Message {
-  id           String      @id @default(cuid())
-  roomId       String
-  senderId     String
-  clientMessageId String?  // 客户端生成的消息ID，用于断线重试幂等
-  content      String?
-  messageType  MessageType  @default(TEXT)
+  id              String      @id @default(cuid())
+  roomId          String
+  senderId        String
+  clientMessageId String? // 客户端生成的消息ID，用于断线重试幂等
+  content         String?
+  messageType     MessageType @default(TEXT)
   // 文件分享字段
-  fileUrl      String?     // 文件访问URL
-  fileName     String?     // 原始文件名
-  fileSize     Int?        // 文件大小（字节）
-  fileType     String?     // MIME类型
+  fileUrl         String? // 文件访问URL
+  fileName        String? // 原始文件名
+  fileSize        Int? // 文件大小（字节）
+  fileType        String? // MIME类型
   // 媒体扩展信息（图片/音视频）
-  thumbnailUrl String?     // 缩略图/封面 URL（图片、视频封面、文件预览）
-  mediaWidth   Int?        // 媒体宽度（图片/视频，px）
-  mediaHeight  Int?        // 媒体高度（图片/视频，px）
-  duration     Int?        // 时长（音/视频，秒）
+  thumbnailUrl    String? // 缩略图/封面 URL（图片、视频封面、文件预览）
+  mediaWidth      Int? // 媒体宽度（图片/视频，px）
+  mediaHeight     Int? // 媒体高度（图片/视频，px）
+  duration        Int? // 时长（音/视频，秒）
   // 其他字段
-  isEdited     Boolean     @default(false)
-  editedAt     DateTime?
-  isDeleted    Boolean     @default(false) // 软删除
-  deletedAt   DateTime?
-  createdAt    DateTime    @default(now())
+  isEdited        Boolean     @default(false)
+  editedAt        DateTime?
+  isDeleted       Boolean     @default(false) // 软删除
+  deletedAt       DateTime?
+  createdAt       DateTime    @default(now())
 
-  room         ChatRoom    @relation(fields: [roomId], references: [id])
-  sender       ChatUser    @relation("MessageSender", fields: [senderId], references: [id])
+  room   ChatRoom @relation(fields: [roomId], references: [id])
+  sender ChatUser @relation("MessageSender", fields: [senderId], references: [id])
 
   // 搜索索引（只存6个月内）
-  searchIndex  MessageSearchIndex?
+  searchIndex MessageSearchIndex?
 
+  @@unique([senderId, clientMessageId])
   @@index([roomId, createdAt])
   @@index([senderId, createdAt])
-  @@unique([senderId, clientMessageId])
   @@map("chat_messages")
 }
 
@@ -286,8 +311,8 @@ model ChatClearState {
   userId    String
   clearedAt DateTime @default(now())
 
-  room      ChatRoom @relation(fields: [roomId], references: [id])
-  user      ChatUser @relation(fields: [userId], references: [id])
+  room ChatRoom @relation(fields: [roomId], references: [id])
+  user ChatUser @relation(fields: [userId], references: [id])
 
   @@unique([roomId, userId])
   @@index([userId, clearedAt])
@@ -295,16 +320,16 @@ model ChatClearState {
 }
 
 model MessageSyncState {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   roomId          String
   userId          String
   lastDeliveredId String?
   lastDeliveredAt DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  room            ChatRoom @relation(fields: [roomId], references: [id])
-  user            ChatUser @relation(fields: [userId], references: [id])
+  room ChatRoom @relation(fields: [roomId], references: [id])
+  user ChatUser @relation(fields: [userId], references: [id])
 
   @@unique([roomId, userId])
   @@index([userId, updatedAt])
@@ -315,10 +340,10 @@ model MessageSyncState {
 model MessageSearchIndex {
   id        String   @id @default(cuid())
   messageId String   @unique
-  content   String   // 用于搜索的内容
+  content   String // 用于搜索的内容
   createdAt DateTime
 
-  message   Message  @relation(fields: [messageId], references: [id])
+  message Message @relation(fields: [messageId], references: [id])
 
   @@index([content]) // 创建全文搜索索引
   @@map("chat_message_search_index")
@@ -326,16 +351,16 @@ model MessageSearchIndex {
 
 model FileStorage {
   id           String   @id @default(cuid())
-  originalName String   // 原始文件名
-  filename     String   // 存储文件名（UUID）
-  mimetype     String   // MIME类型
-  size         Int       // 文件大小（字节）
-  path         String   // 文件存储路径
-  url          String   // 公共访问URL
+  originalName String // 原始文件名
+  filename     String // 存储文件名（UUID）
+  mimetype     String // MIME类型
+  size         Int // 文件大小（字节）
+  path         String // 文件存储路径
+  url          String // 公共访问URL
   uploadedBy   String
   createdAt    DateTime @default(now())
 
-  uploader     ChatUser  @relation(fields: [uploadedBy], references: [id])
+  uploader ChatUser @relation(fields: [uploadedBy], references: [id])
 
   @@index([mimetype, size])
   @@map("file_storage")
@@ -343,21 +368,21 @@ model FileStorage {
 
 // ===== 通知系统 =====
 model Notification {
-  id           String             @id @default(cuid())
-  type         NotificationType   // 通知类型：好友申请、群聊邀请
-  isRead       Boolean            @default(false)  // 是否已读
-  result       NotificationResult @default(PENDING) // 处理结果：待处理、同意、拒绝
-  targetId     String             // 邀请对象ID：好友申请时为好友ID，群聊邀请时为chat_room的ID
-  extra        Json?              // 额外信息：加好友时的打招呼提示语等，JSON格式
+  id       String             @id @default(cuid())
+  type     NotificationType // 通知类型：好友申请、群聊邀请
+  isRead   Boolean            @default(false) // 是否已读
+  result   NotificationResult @default(PENDING) // 处理结果：待处理、同意、拒绝
+  targetId String // 邀请对象ID：好友申请时为好友ID，群聊邀请时为chat_room的ID
+  extra    Json? // 额外信息：加好友时的打招呼提示语等，JSON格式
 
   // 关系
-  receiverId   String             // 接收者ID
-  senderId     String             // 发送者ID
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  receiverId String // 接收者ID
+  senderId   String // 发送者ID
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  receiver     ChatUser           @relation("NotificationReceiver", fields: [receiverId], references: [id])
-  sender       ChatUser           @relation("NotificationSender", fields: [senderId], references: [id])
+  receiver ChatUser @relation("NotificationReceiver", fields: [receiverId], references: [id])
+  sender   ChatUser @relation("NotificationSender", fields: [senderId], references: [id])
 
   @@index([receiverId, isRead, createdAt])
   @@index([type, result])
@@ -366,13 +391,13 @@ model Notification {
 
 // ===== 好友关系 =====
 model ChatFriendship {
-  id        String   @id @default(cuid())
+  id         String   @id @default(cuid())
   senderId   String
-  receiverId   String
-  createdAt DateTime @default(now())
+  receiverId String
+  createdAt  DateTime @default(now())
 
-  sender     ChatUser @relation("FriendshipSender", fields: [senderId], references: [id])
-  receiver   ChatUser @relation("FriendshipReceiver", fields: [receiverId], references: [id])
+  sender   ChatUser @relation("FriendshipSender", fields: [senderId], references: [id])
+  receiver ChatUser @relation("FriendshipReceiver", fields: [receiverId], references: [id])
 
   @@unique([senderId, receiverId])
   @@index([senderId])
@@ -382,16 +407,16 @@ model ChatFriendship {
 
 // ===== 收藏系统 =====
 model Favorite {
-  id           String       @id @default(cuid())
-  type         FavoriteType // 收藏类型：消息、图片、视频、文件、聊天记录
-  targetId     String       // 收藏目标ID：消息ID、文件ID、聊天记录ID等
-  userId       String       // 用户ID
+  id       String       @id @default(cuid())
+  type     FavoriteType // 收藏类型：消息、图片、视频、文件、聊天记录
+  targetId String // 收藏目标ID：消息ID、文件ID、聊天记录ID等
+  userId   String // 用户ID
 
   // 来源信息：用于前端直接展示「来自哪个群聊/联系人」
-  sourceType   String?      // 来源类型：chat、group、user 等
-  sourceId     String?      // 来源ID：roomId、userId 等
-  sourceName   String?      // 来源名称：群聊名称、联系人昵称等
-  roomId       String?      // 如果来源于聊天室，记录 roomId
+  sourceType String? // 来源类型：chat、group、user 等
+  sourceId   String? // 来源ID：roomId、userId 等
+  sourceName String? // 来源名称：群聊名称、联系人昵称等
+  roomId     String? // 如果来源于聊天室，记录 roomId
 
   // 展示快照：避免原消息/文件变动后收藏列表无法展示
   title        String?
@@ -406,11 +431,11 @@ model Favorite {
   duration     Int?
   extra        Json?
 
-  collectedAt  DateTime     @default(now()) // 收藏发生时间，包含年月日时分秒
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  collectedAt DateTime @default(now()) // 收藏发生时间，包含年月日时分秒
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  user         ChatUser     @relation(fields: [userId], references: [id])
+  user ChatUser @relation(fields: [userId], references: [id])
 
   @@unique([userId, type, targetId]) // 防止重复收藏
   @@index([userId, type, collectedAt])

@@ -96,5 +96,6 @@ export default () => ({
     timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 30000),
     maxInputCharacters: Number(process.env.AI_MAX_INPUT_CHARACTERS ?? 30000),
     rateLimitWindowMs: Number(process.env.AI_RATE_LIMIT_WINDOW_MS ?? 5000),
+    rateLimitMaxRequests: Number(process.env.AI_RATE_LIMIT_MAX_REQUESTS ?? 2),
   },
 });

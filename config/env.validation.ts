@@ -35,6 +35,7 @@ export const envValidationSchema = Joi.object({
   AI_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
   AI_MAX_INPUT_CHARACTERS: Joi.number().integer().min(1000).default(30000),
   AI_RATE_LIMIT_WINDOW_MS: Joi.number().integer().min(0).default(5000),
+  AI_RATE_LIMIT_MAX_REQUESTS: Joi.number().integer().min(1).default(2),
 
   LOG_LEVEL: Joi.string()
     .valid('fatal', 'error', 'warn', 'info', 'debug')
