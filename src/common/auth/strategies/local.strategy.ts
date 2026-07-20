@@ -1,14 +1,16 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { PassportStrategy } from '@nestjs/passport';
-import { Strategy } from 'passport-local';
-import { AuthService } from '../services/auth.service';
+import { Injectable, HttpStatus } from "@nestjs/common";
+import { PassportStrategy } from "@nestjs/passport";
+import { Strategy } from "passport-local";
+import { AuthService } from "../services/auth.service";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
 
 @Injectable()
 export class LocalStrategy extends PassportStrategy(Strategy) {
   constructor(private authService: AuthService) {
     super({
-      usernameField: 'account', // 前端传的是account字段
-      passwordField: 'password',
+      usernameField: "account", // 前端传的是account字段
+      passwordField: "password",
     });
   }
 
@@ -21,7 +23,11 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
   async validate(account: string, password: string): Promise<any> {
     const user = await this.authService.validateUser(account, password);
     if (!user) {
-      throw new UnauthorizedException('用户名或密码错误');
+      throw new BusinessException(
+        BusinessErrorCode.AUTH_LOGIN_INVALID,
+        "用户名或密码错误",
+        HttpStatus.UNAUTHORIZED,
+      );
     }
     return user;
   }

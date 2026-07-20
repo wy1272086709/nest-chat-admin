@@ -1,13 +1,13 @@
+import { HttpStatus, Injectable } from "@nestjs/common";
+import { FavoriteType, MessageType, Prisma } from "@prisma/client";
+import { PrismaService } from "@/common/database/services/prisma.service";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
 import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { FavoriteType, MessageType, Prisma } from '@prisma/client';
-import { PrismaService } from '@/common/database/services/prisma.service';
-import { CreateFavoriteDto, FavoriteQueryDto, RemoveFavoriteDto } from './dto/favorite.dto';
+  CreateFavoriteDto,
+  FavoriteQueryDto,
+  RemoveFavoriteDto,
+} from "./dto/favorite.dto";
 
 const messageTypeByFavoriteType: Partial<Record<FavoriteType, MessageType>> = {
   [FavoriteType.MESSAGE]: MessageType.TEXT,
@@ -27,7 +27,7 @@ export class FavoriteService {
         ...(query.type ? { type: query.type } : {}),
       },
       orderBy: {
-        collectedAt: 'desc',
+        collectedAt: "desc",
       },
       take: query.take ?? 100,
     });
@@ -41,8 +41,15 @@ export class FavoriteService {
         data,
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('该内容已收藏');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new BusinessException(
+          BusinessErrorCode.FAVORITE_ALREADY_EXISTS,
+          "该内容已收藏",
+          HttpStatus.CONFLICT,
+        );
       }
       throw error;
     }
@@ -60,7 +67,11 @@ export class FavoriteService {
     });
 
     if (!favorite) {
-      throw new NotFoundException('收藏不存在');
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_NOT_FOUND,
+        "收藏不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     await this.prisma.favorite.delete({
@@ -72,7 +83,10 @@ export class FavoriteService {
     return favorite;
   }
 
-  private async buildCreateData(userId: string, dto: CreateFavoriteDto): Promise<Prisma.FavoriteUncheckedCreateInput> {
+  private async buildCreateData(
+    userId: string,
+    dto: CreateFavoriteDto,
+  ): Promise<Prisma.FavoriteUncheckedCreateInput> {
     if (dto.type === FavoriteType.CHAT_RECORD) {
       return this.buildChatRecordFavoriteData(userId, dto);
     }
@@ -104,18 +118,30 @@ export class FavoriteService {
     });
 
     if (!message || message.isDeleted) {
-      throw new NotFoundException('收藏目标不存在');
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_TARGET_NOT_FOUND,
+        "收藏目标不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     await this.assertActiveRoomMember(message.roomId, userId);
 
     if (dto.roomId && dto.roomId !== message.roomId) {
-      throw new BadRequestException('收藏目标与房间不匹配');
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_ROOM_MISMATCH,
+        "收藏目标与房间不匹配",
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const expectedMessageType = messageTypeByFavoriteType[dto.type];
     if (expectedMessageType && message.messageType !== expectedMessageType) {
-      throw new BadRequestException('收藏类型与消息类型不匹配');
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_TYPE_MISMATCH,
+        "收藏类型与消息类型不匹配",
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     return {
@@ -155,7 +181,11 @@ export class FavoriteService {
     });
 
     if (!room) {
-      throw new NotFoundException('收藏目标不存在');
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_TARGET_NOT_FOUND,
+        "收藏目标不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     await this.assertActiveRoomMember(room.id, userId);
@@ -196,14 +226,21 @@ export class FavoriteService {
       },
     });
 
-    if (!member || member.status !== 'ACTIVE') {
-      throw new ForbiddenException('无权收藏该内容');
+    if (!member || member.status !== "ACTIVE") {
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_FORBIDDEN,
+        "无权收藏该内容",
+        HttpStatus.FORBIDDEN,
+      );
     }
   }
 
-  private async assertChatRecordMessagesBelongToRoom(extra: Record<string, unknown> | undefined, roomId: string) {
+  private async assertChatRecordMessagesBelongToRoom(
+    extra: Record<string, unknown> | undefined,
+    roomId: string,
+  ) {
     const messageIds = Array.isArray(extra?.messageIds)
-      ? extra.messageIds.filter((id): id is string => typeof id === 'string')
+      ? extra.messageIds.filter((id): id is string => typeof id === "string")
       : [];
 
     if (!messageIds.length) {
@@ -222,12 +259,16 @@ export class FavoriteService {
     });
 
     if (count !== uniqueMessageIds.length) {
-      throw new BadRequestException('聊天记录包含不可收藏的消息');
+      throw new BusinessException(
+        BusinessErrorCode.FAVORITE_CHAT_RECORD_INVALID,
+        "聊天记录包含不可收藏的消息",
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
   private getRoomSourceType(topic: string | null) {
-    return topic === 'PRIVATE' ? 'private' : 'group';
+    return topic === "PRIVATE" ? "private" : "group";
   }
 
   private getMessageFavoriteTitle(

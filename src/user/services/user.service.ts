@@ -5,11 +5,13 @@ import {
   HttpException,
   HttpStatus,
   Logger,
-} from '@nestjs/common';
-import { PrismaService } from '../../common/database/services/prisma.service';
-import * as bcrypt from 'bcryptjs';
-import { ChatUser, UserStatus } from '@prisma/client';
-import { AddFriendDto, LoginDto } from '../dto/user.dto';
+} from "@nestjs/common";
+import { PrismaService } from "../../common/database/services/prisma.service";
+import * as bcrypt from "bcryptjs";
+import { ChatUser, Prisma, UserStatus } from "@prisma/client";
+import { AddFriendDto, LoginDto } from "../dto/user.dto";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
 
 @Injectable()
 export class UserService {
@@ -23,50 +25,89 @@ export class UserService {
 
   async create(
     userData: Partial<ChatUser> & { password: string },
-  ): Promise<Pick<ChatUser, 'username' | 'email' | 'nickname'>> {
-    // 检查邮箱是否已存在（大小写不敏感）
-    const existingUser = await this.prisma.chatUser.findFirst({
-      where: {
-        email: {
-          equals: userData.email!,
-          mode: 'insensitive',
-        },
-      },
-    });
-    if (existingUser) {
-      throw new HttpException('邮箱已存在！', HttpStatus.BAD_REQUEST);
-    }
-
-    // 检查用户名是否已存在（大小写不敏感）
-    const existingUsername = await this.prisma.chatUser.findFirst({
-      where: {
-        username: {
-          equals: userData.username!,
-          mode: 'insensitive',
-        },
-      },
-    });
-    if (existingUsername) {
-      throw new HttpException('用户名已存在！', HttpStatus.BAD_REQUEST);
-    }
-
+  ): Promise<Pick<ChatUser, "username" | "email" | "nickname">> {
     const passwordHash = await bcrypt.hash(userData.password, 10);
 
-    const result = await this.prisma.chatUser.create({
-      data: {
-        username: userData.username!,
-        email: userData.email!,
-        nickname: userData.nickname!,
-        passwordHash,
-        status: 'ACTIVE',
+    try {
+      return await this.prisma.chatUser.create({
+        data: {
+          username: userData.username!,
+          email: userData.email!,
+          nickname: userData.nickname!,
+          passwordHash,
+          status: "ACTIVE",
+        },
+        select: {
+          username: true,
+          email: true,
+          nickname: true,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw this.createRegistrationConflictException(error.meta?.target);
+      }
+      throw error;
+    }
+  }
+
+  private createRegistrationConflictException(target: unknown) {
+    const fields = Array.isArray(target)
+      ? target.map(String)
+      : typeof target === "string"
+        ? [target]
+        : [];
+
+    if (fields.some((field) => field.includes("email"))) {
+      return new BusinessException(
+        BusinessErrorCode.USER_EMAIL_REGISTERED,
+        "该邮箱已注册，请直接登录",
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (fields.some((field) => field.includes("username"))) {
+      return new BusinessException(
+        BusinessErrorCode.USERNAME_REGISTERED,
+        "该用户名已注册，请更换用户名",
+        HttpStatus.CONFLICT,
+      );
+    }
+    return new BusinessException(
+      BusinessErrorCode.USER_REGISTRATION_CONFLICT,
+      "注册信息已被占用，请更换后重试",
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  async assertRegistrationAvailable(email: string, username?: string) {
+    const existingUser = await this.prisma.chatUser.findFirst({
+      where: {
+        OR: [
+          { email: { equals: email, mode: "insensitive" } },
+          ...(username
+            ? [{ username: { equals: username, mode: "insensitive" as const } }]
+            : []),
+        ],
       },
-      select: {
-        username: true,
-        email: true,
-        nickname: true,
-      },
+      select: { email: true, username: true },
     });
-    return result;
+    if (!existingUser) return;
+
+    if (existingUser.email.toLowerCase() === email.toLowerCase()) {
+      throw new BusinessException(
+        BusinessErrorCode.USER_EMAIL_REGISTERED,
+        "该邮箱已注册，请直接登录",
+        HttpStatus.CONFLICT,
+      );
+    }
+    throw new BusinessException(
+      BusinessErrorCode.USERNAME_REGISTERED,
+      "该用户名已注册，请更换用户名",
+      HttpStatus.CONFLICT,
+    );
   }
 
   async findById(id: string): Promise<ChatUser | null> {
@@ -103,7 +144,7 @@ export class UserService {
       where: {
         email: {
           equals: email,
-          mode: 'insensitive',
+          mode: "insensitive",
         },
       },
     });
@@ -114,7 +155,7 @@ export class UserService {
       where: {
         username: {
           equals: username,
-          mode: 'insensitive',
+          mode: "insensitive",
         },
       },
     });
@@ -126,7 +167,11 @@ export class UserService {
       where: { id },
     });
     if (!existingUser) {
-      throw new NotFoundException('ChatUser not found');
+      throw new BusinessException(
+        BusinessErrorCode.USER_NOT_FOUND,
+        "用户不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return this.prisma.chatUser.update({
@@ -141,7 +186,11 @@ export class UserService {
       where: { id },
     });
     if (!existingUser) {
-      throw new NotFoundException('ChatUser not found');
+      throw new BusinessException(
+        BusinessErrorCode.USER_NOT_FOUND,
+        "用户不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     await this.prisma.chatUser.delete({
@@ -152,7 +201,7 @@ export class UserService {
   async findAll(): Promise<ChatUser[]> {
     return this.prisma.chatUser.findMany({
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -189,13 +238,13 @@ export class UserService {
           {
             username: {
               equals: query,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
           {
             email: {
               equals: query,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
         ],
@@ -232,25 +281,25 @@ export class UserService {
           {
             username: {
               contains: query,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
           {
             email: {
               contains: query,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
           {
             nickname: {
               contains: query,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
         ],
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -261,7 +310,11 @@ export class UserService {
       where: { id },
     });
     if (!existingUser) {
-      throw new NotFoundException('ChatUser not found');
+      throw new BusinessException(
+        BusinessErrorCode.USER_NOT_FOUND,
+        "用户不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return this.prisma.chatUser.update({
@@ -278,13 +331,13 @@ export class UserService {
           {
             email: {
               equals: loginDto.account,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
           {
             username: {
               equals: loginDto.account,
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
         ],
@@ -292,7 +345,11 @@ export class UserService {
     });
 
     if (!existingUser) {
-      throw new NotFoundException('用户不存在');
+      throw new BusinessException(
+        BusinessErrorCode.USER_NOT_FOUND,
+        "用户不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     // 检查密码是否匹配
@@ -301,7 +358,11 @@ export class UserService {
       existingUser.passwordHash,
     );
     if (!passwordMatch) {
-      throw new NotFoundException('密码错误');
+      throw new BusinessException(
+        BusinessErrorCode.USER_PASSWORD_INCORRECT,
+        "密码错误",
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     return existingUser;
@@ -310,7 +371,11 @@ export class UserService {
   async addFriend(senderId: string, addFriendDto: AddFriendDto) {
     const receiverId = addFriendDto.receiverId;
     if (senderId === receiverId) {
-      throw new HttpException('不能添加自己为好友', HttpStatus.BAD_REQUEST);
+      throw new BusinessException(
+        BusinessErrorCode.USER_CANNOT_ADD_SELF,
+        "不能添加自己为好友",
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const receiver = await this.prisma.chatUser.findUnique({
@@ -318,7 +383,11 @@ export class UserService {
       select: { id: true },
     });
     if (!receiver) {
-      throw new NotFoundException('用户不存在');
+      throw new BusinessException(
+        BusinessErrorCode.USER_NOT_FOUND,
+        "用户不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     const [userAId, userBId] = this.getFriendshipPair(senderId, receiverId);
@@ -331,13 +400,17 @@ export class UserService {
       },
     });
     if (existingFriendship) {
-      throw new ConflictException('你们已经是好友了');
+      throw new BusinessException(
+        BusinessErrorCode.USER_ALREADY_FRIENDS,
+        "你们已经是好友了",
+        HttpStatus.CONFLICT,
+      );
     }
 
     const existingPendingRequest = await this.prisma.notification.findFirst({
       where: {
-        type: 'FRIEND_REQUEST',
-        result: 'PENDING',
+        type: "FRIEND_REQUEST",
+        result: "PENDING",
         OR: [
           {
             senderId,
@@ -351,12 +424,16 @@ export class UserService {
       },
     });
     if (existingPendingRequest) {
-      throw new ConflictException('已有待处理的好友申请');
+      throw new BusinessException(
+        BusinessErrorCode.FRIEND_REQUEST_PENDING,
+        "已有待处理的好友申请",
+        HttpStatus.CONFLICT,
+      );
     }
 
     return this.prisma.notification.create({
       data: {
-        type: 'FRIEND_REQUEST',
+        type: "FRIEND_REQUEST",
         senderId,
         receiverId,
         targetId: receiverId,
@@ -416,11 +493,11 @@ export class UserService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
     this.logger.debug({
-      event: 'user.friendships.loaded',
+      event: "user.friendships.loaded",
       userId,
       count: friendships.length,
     });
@@ -437,7 +514,11 @@ export class UserService {
    */
   async removeFriend(userId: string, friendId: string) {
     if (userId === friendId) {
-      throw new HttpException('不能删除自己为好友', HttpStatus.BAD_REQUEST);
+      throw new BusinessException(
+        BusinessErrorCode.USER_CANNOT_DELETE_SELF,
+        "不能删除自己为好友",
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const friend = await this.prisma.chatUser.findUnique({
@@ -445,7 +526,11 @@ export class UserService {
       select: { id: true },
     });
     if (!friend) {
-      throw new NotFoundException('用户不存在');
+      throw new BusinessException(
+        BusinessErrorCode.USER_NOT_FOUND,
+        "用户不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     const [userAId, userBId] = this.getFriendshipPair(userId, friendId);
@@ -461,14 +546,14 @@ export class UserService {
         },
       });
     } catch (e) {
-      if ((e as { code?: string })?.code !== 'P2025') throw e;
+      if ((e as { code?: string })?.code !== "P2025") throw e;
     }
 
     // 2) 级联：软移除当前用户在该私聊的成员关系，使其从会话列表消失。
     //    私聊房间名需与 ChatService.getPrivateRoomName 保持一致（排序后以 ':' 拼接）。
-    const privateRoomName = [userAId, userBId].sort().join(':');
+    const privateRoomName = [userAId, userBId].sort().join(":");
     const privateRoom = await this.prisma.chatRoom.findFirst({
-      where: { topic: 'PRIVATE', name: privateRoomName },
+      where: { topic: "PRIVATE", name: privateRoomName },
       select: { id: true },
     });
     if (privateRoom) {
@@ -480,11 +565,11 @@ export class UserService {
               userId,
             },
           },
-          data: { status: 'INACTIVE' },
+          data: { status: "INACTIVE" },
         });
       } catch (e) {
         // 成员记录可能不存在（从未聊过天），忽略
-        if ((e as { code?: string })?.code !== 'P2025') throw e;
+        if ((e as { code?: string })?.code !== "P2025") throw e;
       }
     }
   }
@@ -499,19 +584,19 @@ export class UserService {
     const memberships = await this.prisma.roomMember.findMany({
       where: {
         userId,
-        status: 'ACTIVE',
-        room: { topic: { not: 'PRIVATE' } },
+        status: "ACTIVE",
+        room: { topic: { not: "PRIVATE" } },
       },
       include: {
         room: {
           include: {
             _count: {
-              select: { members: { where: { status: 'ACTIVE' } } },
+              select: { members: { where: { status: "ACTIVE" } } },
             },
           },
         },
       },
-      orderBy: { room: { updatedAt: 'desc' } },
+      orderBy: { room: { updatedAt: "desc" } },
     });
 
     return memberships.map((membership) => ({

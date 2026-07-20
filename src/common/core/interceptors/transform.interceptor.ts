@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { createSuccessResponse } from '../responses/response.factory';
 
 // 最终返回响应的格式
 export interface Response<T> {
@@ -22,12 +23,10 @@ export interface DataResult<T extends Record<string, any> | null> {
 }
 
 @Injectable()
-export class TransformInterceptor<T>
-  implements NestInterceptor<DataResult<T>>
-{
+export class TransformInterceptor<T> implements NestInterceptor<DataResult<T>> {
   intercept(
     context: ExecutionContext,
-    next: CallHandler<DataResult<T>>
+    next: CallHandler<DataResult<T>>,
   ): Observable<Response<DataResult<T>> | any> {
     const ctx = context.switchToHttp();
     const response = ctx.getResponse();
@@ -44,14 +43,12 @@ export class TransformInterceptor<T>
             ? (data as DataResult<T>)
             : ({ result: true, data } as DataResult<T>);
 
-        return {
-          // 判断请求成功与否
-          result: wrapped.result,
-          code: 0,
+        return createSuccessResponse({
           data: wrapped.data,
           message: wrapped.message,
-        };
-      })
+          result: wrapped.result,
+        });
+      }),
     );
   }
 }

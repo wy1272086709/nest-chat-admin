@@ -1,10 +1,12 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import { Reflector } from '@nestjs/core';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { Injectable, ExecutionContext, HttpStatus } from "@nestjs/common";
+import { AuthGuard } from "@nestjs/passport";
+import { Reflector } from "@nestjs/core";
+import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
 
 @Injectable()
-export class JwtAuthGuard extends AuthGuard('jwt') {
+export class JwtAuthGuard extends AuthGuard("jwt") {
   constructor(private reflector: Reflector) {
     super();
   }
@@ -39,18 +41,34 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return user;
     }
 
-    if (info?.name === 'TokenExpiredError') {
-      throw new UnauthorizedException('Token 已过期，请重新登录');
+    if (info?.name === "TokenExpiredError") {
+      throw new BusinessException(
+        BusinessErrorCode.AUTH_TOKEN_EXPIRED,
+        "Token 已过期，请重新登录",
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
-    if (info?.name === 'JsonWebTokenError') {
-      throw new UnauthorizedException('Token 无效，请重新登录');
+    if (info?.name === "JsonWebTokenError") {
+      throw new BusinessException(
+        BusinessErrorCode.AUTH_TOKEN_INVALID,
+        "Token 无效，请重新登录",
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
-    if (info?.message === 'No auth token') {
-      throw new UnauthorizedException('缺少 Authorization 请求头');
+    if (info?.message === "No auth token") {
+      throw new BusinessException(
+        BusinessErrorCode.AUTH_TOKEN_MISSING,
+        "缺少 Authorization 请求头",
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
-    throw new UnauthorizedException('认证失败，请重新登录');
+    throw new BusinessException(
+      BusinessErrorCode.AUTH_UNAUTHORIZED,
+      "认证失败，请重新登录",
+      HttpStatus.UNAUTHORIZED,
+    );
   }
 }

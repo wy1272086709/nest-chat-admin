@@ -1,6 +1,11 @@
-import { ConflictException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '@/common/database/services/prisma.service';
-import { FriendRequestAction, HandleFriendRequestDto } from './dto/notification.dto';
+import { HttpStatus, Injectable } from "@nestjs/common";
+import { PrismaService } from "@/common/database/services/prisma.service";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
+import {
+  FriendRequestAction,
+  HandleFriendRequestDto,
+} from "./dto/notification.dto";
 
 @Injectable()
 export class NotificationService {
@@ -32,7 +37,7 @@ export class NotificationService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -41,7 +46,7 @@ export class NotificationService {
     return this.prisma.notification.findMany({
       where: {
         receiverId: userId,
-        type: 'FRIEND_REQUEST',
+        type: "FRIEND_REQUEST",
       },
       include: {
         sender: {
@@ -49,7 +54,7 @@ export class NotificationService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -60,11 +65,19 @@ export class NotificationService {
     });
 
     if (!notification) {
-      throw new NotFoundException('通知不存在');
+      throw new BusinessException(
+        BusinessErrorCode.NOTIFICATION_NOT_FOUND,
+        "通知不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     if (notification.receiverId !== userId) {
-      throw new HttpException('只能操作自己的通知', HttpStatus.FORBIDDEN);
+      throw new BusinessException(
+        BusinessErrorCode.NOTIFICATION_FORBIDDEN,
+        "只能操作自己的通知",
+        HttpStatus.FORBIDDEN,
+      );
     }
 
     return this.prisma.notification.update({
@@ -97,23 +110,35 @@ export class NotificationService {
       where: { id: handleDto.notificationId },
     });
 
-    if (!notification || notification.type !== 'FRIEND_REQUEST') {
-      throw new NotFoundException('好友申请不存在');
+    if (!notification || notification.type !== "FRIEND_REQUEST") {
+      throw new BusinessException(
+        BusinessErrorCode.FRIEND_REQUEST_NOT_FOUND,
+        "好友申请不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     if (notification.receiverId !== userId) {
-      throw new HttpException('只能处理发送给自己的好友申请', HttpStatus.FORBIDDEN);
+      throw new BusinessException(
+        BusinessErrorCode.FRIEND_REQUEST_FORBIDDEN,
+        "只能处理发送给自己的好友申请",
+        HttpStatus.FORBIDDEN,
+      );
     }
 
-    if (notification.result !== 'PENDING') {
-      throw new ConflictException('该好友申请已处理');
+    if (notification.result !== "PENDING") {
+      throw new BusinessException(
+        BusinessErrorCode.FRIEND_REQUEST_ALREADY_HANDLED,
+        "该好友申请已处理",
+        HttpStatus.CONFLICT,
+      );
     }
 
     if (handleDto.action === FriendRequestAction.REJECTED) {
       return this.prisma.notification.update({
         where: { id: notification.id },
         data: {
-          result: 'REJECTED',
+          result: "REJECTED",
           isRead: true,
         },
         include: {
@@ -124,7 +149,10 @@ export class NotificationService {
       });
     }
 
-    const [userAId, userBId] = this.getFriendshipPair(notification.senderId, notification.receiverId);
+    const [userAId, userBId] = this.getFriendshipPair(
+      notification.senderId,
+      notification.receiverId,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       const existingFriendship = await tx.chatFriendship.findUnique({
@@ -148,7 +176,7 @@ export class NotificationService {
       return tx.notification.update({
         where: { id: notification.id },
         data: {
-          result: 'ACCEPTED',
+          result: "ACCEPTED",
           isRead: true,
         },
         include: {

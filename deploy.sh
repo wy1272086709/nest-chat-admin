@@ -5,6 +5,7 @@
 #   prod -> .env.prod 镜像 nest-admin-chat:prod  容器 nest-admin-chat-prod
 # 依赖(minio/redis/rabbitmq)也会用同一份 .env.<env> 通过 docker compose 启动。
 set -euo pipefail
+PWD=$(pwd)
 
 ENV="${1:-}"
 case "$ENV" in
@@ -24,15 +25,15 @@ CONTAINER="nest-admin-chat-$ENV"
   exit 1
 }
 
-# 1. 启动依赖服务(minio/redis/rabbitmq,按环境加载同一份 .env.<env>)
+# 1. 先停止旧应用，避免依赖服务启动或重建期间旧进程继续连接、消费和写入
+echo "==> [$ENV] 停止并移除旧容器 ($CONTAINER)"
+docker rm -f "$CONTAINER" 2>/dev/null || true
+
+# 2. 启动依赖服务(minio/redis/rabbitmq,按环境加载同一份 .env.<env>)
 #    ENV_FILE 经 shell 传入供 compose 解析 env_file 路径;
 #    --env-file 提供其余插值变量(MINIO_HOST_BIND / 各 *_VERSION_TAG 等)。
 echo "==> [$ENV] 启动依赖服务 (minio/redis/rabbitmq)"
-ENV_FILE="$ENV_FILE" docker compose -f docker/docker-compose.yml --env-file "$ENV_FILE" up -d
-
-# 2. 清理旧应用容器(docker rm -f 合并 stop+rm;容器不存在时静默,|| true 兜底)
-echo "==> [$ENV] 停止并移除旧容器 ($CONTAINER)"
-docker rm -f "$CONTAINER" 2>/dev/null || true
+ENV_FILE="$ENV_FILE" docker compose -f docker/docker-compose.yml --env-file "$ENV_FILE" up -d --wait --wait-timeout 120
 
 # 3. 构建镜像(按环境打 tag,dev/prod 镜像可共存)
 echo "==> [$ENV] 构建镜像 ($IMAGE)"
@@ -49,7 +50,9 @@ docker run --rm \
 # 5. 启动新版本应用
 echo "==> [$ENV] 启动应用 ($CONTAINER)"
 docker run -d \
+  --publish 3000:3000 \
   --name "$CONTAINER" \
+  --volume "$PWD/uploads:/app/dist/uploads" \
   --restart unless-stopped \
   --network common-network \
   --env-file "$ENV_FILE" \

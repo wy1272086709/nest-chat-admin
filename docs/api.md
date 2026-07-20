@@ -95,7 +95,7 @@ Unhandled exceptions are caught by `GlobalExceptionFilter` (`src/common/core/fil
 ```jsonc
 {
   "result": false,
-  "code": 400,                 // actual HTTP status
+  "code": 10001,               // stable business code; HTTP status is 400
   "data": null,
   "message": "Validation error message",
   "path": "/api/users/login"   // debugging aid
@@ -103,6 +103,10 @@ Unhandled exceptions are caught by `GlobalExceptionFilter` (`src/common/core/fil
 ```
 
 Validation errors from `class-validator` produce a `400 Bad Request` with the first validation message. Internal exceptions produce `500`.
+
+Controller 异常透传、`SERVICE_ERROR_MESSAGE` 的边界以及 HTTP 状态码与业务码的演进方案见 [http-exception-filter-and-business-code-design.md](./http-exception-filter-and-business-code-design.md)。
+
+业务异常的代码规范、业务码分配和测试要求见 [business-exception-coding-standards.md](./business-exception-coding-standards.md)。
 
 ---
 
@@ -186,7 +190,8 @@ export class CreateUserDto {
 }
 ```
 
-- **Flow**: Verifies `code` against the Redis key `verificationCode:{email}:register` (issued by `POST /api/users/sendEmail` with `type=register`). On success, creates the user.
+- **Flow**: First checks whether the email or username is already registered. It then verifies `code` against the Redis key `verificationCode:{email}:register` (issued by `POST /api/users/sendEmail` with `type=register`). On success, creates the user and deletes the used verification code.
+- **Duplicate registration**: returns `result: false` with `该邮箱已注册，请直接登录` or `该用户名已注册，请更换用户名`. The database unique constraint remains the final concurrency safeguard.
 - **Response** `data`: `Partial<ChatUser>` or `null`.
 
 ```bash

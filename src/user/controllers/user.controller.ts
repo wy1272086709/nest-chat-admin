@@ -7,9 +7,11 @@ import {
   Put,
   Request,
   Logger,
-} from '@nestjs/common';
-import { UserService } from '../services/user.service';
-import { ChatUser } from '@prisma/client';
+  HttpException,
+  HttpStatus,
+} from "@nestjs/common";
+import { UserService } from "../services/user.service";
+import { ChatUser } from "@prisma/client";
 import {
   AddFriendDto,
   CreateUserDto,
@@ -21,20 +23,21 @@ import {
   SearchDto,
   ChangeUserStatusDto,
   RemoveFriendDto,
-} from '../dto/user.dto';
-import { EmailService } from '@/common/core/services/email.service';
-import { RedisService } from '@/common/core/services/redis.service';
-import { MailQueueService } from '@/common/core/services/mail-queue.service';
-import { AuthService } from '@/common/auth/services/auth.service';
-import { Public } from '@/common/auth/decorators/public.decorator';
-import { CurrentUser } from '@/common/auth/decorators/current-user.decorator';
-import { DataResult } from '@/common/core/interceptors/transform.interceptor';
-import { ApiOperation } from '@nestjs/swagger';
-import { ChatGateway } from '@/chat/chat.gateway';
-import * as bcrypt from 'bcryptjs';
-import { SERVICE_ERROR_MESSAGE } from '@/common/core/constants/error-message.constant';
+} from "../dto/user.dto";
+import { EmailService } from "@/common/core/services/email.service";
+import { RedisService } from "@/common/core/services/redis.service";
+import { MailQueueService } from "@/common/core/services/mail-queue.service";
+import { AuthService } from "@/common/auth/services/auth.service";
+import { Public } from "@/common/auth/decorators/public.decorator";
+import { CurrentUser } from "@/common/auth/decorators/current-user.decorator";
+import { DataResult } from "@/common/core/interceptors/transform.interceptor";
+import { ApiOperation } from "@nestjs/swagger";
+import { ChatGateway } from "@/chat/chat.gateway";
+import * as bcrypt from "bcryptjs";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
 
-@Controller('users')
+@Controller("users")
 export class UserController {
   private readonly logger = new Logger(UserController.name);
 
@@ -56,61 +59,59 @@ export class UserController {
   // NestJS 按声明顺序注册路由，Express 会匹配第一个注册的路由，
   // 若 ':id' 在前，GET /users/friends 会被它捕获（id='friends'），永远到不了 getFriends。
 
-  @Post('register')
+  @Post("register")
   @Public() // 标记为公开路由，不需要JWT认证
   async register(
     @Body() createUserDto: CreateUserDto,
   ): Promise<DataResult<Partial<ChatUser>>> {
-    try {
-      // 校验验证码是否正确
-      const codeKey = `verificationCode:${createUserDto.email}:${EmailVerificationType.REGISTER}`;
-      const codeVal = await this.redisService.get(codeKey);
-      let message = '';
-      let data: Partial<ChatUser> | null = null;
-      if (createUserDto.code !== codeVal) {
-        return {
-          message: '验证码错误',
-          data: null,
-          result: false,
-        };
-      }
-      // 校验数据合法性
-      const user = await this.userService.create(createUserDto);
-      if (user) {
-        message = '注册成功';
-        data = user;
-      }
-      return {
-        message,
-        data,
-        result: true,
-      };
-    } catch (e) {
-      this.logger.error(e);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        data: null,
-        result: false,
-      };
+    await this.userService.assertRegistrationAvailable(
+      createUserDto.email,
+      createUserDto.username,
+    );
+
+    const codeKey = `verificationCode:${createUserDto.email}:${EmailVerificationType.REGISTER}`;
+    const codeVal = await this.redisService.get(codeKey);
+    if (createUserDto.code !== codeVal) {
+      throw new BusinessException(
+        BusinessErrorCode.VERIFICATION_CODE_INVALID,
+        "验证码错误",
+        HttpStatus.BAD_REQUEST,
+      );
     }
+
+    const user = await this.userService.create(createUserDto);
+    try {
+      await this.redisService.del(codeKey);
+    } catch (error) {
+      this.logger.warn({
+        event: "registration_verification_code_cleanup_failed",
+        email: createUserDto.email,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return { message: "注册成功", data: user, result: true };
   }
 
   // 发送验证码到邮箱邮箱, type 为 register 或 forgetPassword
-  @Post('sendEmail')
+  @Post("sendEmail")
   @Public() // 标记为公开路由，不需要JWT认证
-  @ApiOperation({ description: '发送验证码到邮箱邮箱' })
+  @ApiOperation({ description: "发送验证码到邮箱邮箱" })
   async sendEmailTo(@Body() sendEmailDto: SendEmailDto) {
     const { to, type } = sendEmailDto;
+    if (type === EmailVerificationType.REGISTER) {
+      await this.userService.assertRegistrationAvailable(to);
+    }
     try {
       // 生成验证码
       const code = this.emailService.generateVerificationCode();
       const key = `verificationCode:${to}:${type}:limit`;
       if (await this.redisService.get(key)) {
-        return {
-          data: null,
-          message: '请稍后重试，避免频繁发送',
-          result: false,
-        };
+        throw new BusinessException(
+          BusinessErrorCode.VERIFICATION_CODE_RATE_LIMITED,
+          "请稍后重试，避免频繁发送",
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
       }
       const codeKey = `verificationCode:${to}:${type}`;
       // Redis 存储验证码，过期时间为 10 分钟
@@ -137,23 +138,20 @@ export class UserController {
       }
 
       return {
-        message: '验证码已发送，请查收邮箱',
+        message: "验证码已发送，请查收邮箱",
         result: true,
         data: null,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Post('forgetPassword')
+  @Post("forgetPassword")
   @Public() // 标记为公开路由，不需要JWT认证
-  @ApiOperation({ description: '忘记密码，重置密码' })
+  @ApiOperation({ description: "忘记密码，重置密码" })
   async forgetPassword(@Body() forgetPasswordDto: ForgetPasswordDto) {
     try {
       const { username, email, code, password } = forgetPasswordDto;
@@ -161,20 +159,20 @@ export class UserController {
       // 1. 判断用户或者邮箱是否存在
       const user = await this.userService.findByUsername(username);
       if (!user) {
-        return {
-          message: '用户不存在',
-          data: null,
-          result: false,
-        };
+        throw new BusinessException(
+          BusinessErrorCode.USER_NOT_FOUND,
+          "用户不存在",
+          HttpStatus.NOT_FOUND,
+        );
       }
 
       // 校验邮箱是否匹配
       if (user.email !== email) {
-        return {
-          message: '邮箱与用户不匹配',
-          data: null,
-          result: false,
-        };
+        throw new BusinessException(
+          BusinessErrorCode.USER_EMAIL_MISMATCH,
+          "邮箱与用户不匹配",
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       // 2. 校验验证码是否正确
@@ -182,19 +180,19 @@ export class UserController {
       const storedCode = await this.redisService.get(codeKey);
 
       if (!storedCode) {
-        return {
-          message: '验证码已过期或不存在',
-          data: null,
-          result: false,
-        };
+        throw new BusinessException(
+          BusinessErrorCode.VERIFICATION_CODE_EXPIRED,
+          "验证码已过期或不存在",
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       if (code !== storedCode) {
-        return {
-          message: '验证码错误',
-          data: null,
-          result: false,
-        };
+        throw new BusinessException(
+          BusinessErrorCode.VERIFICATION_CODE_INVALID,
+          "验证码错误",
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       // 3. 更新密码
@@ -206,7 +204,7 @@ export class UserController {
 
       // 4. 更新密码成功后，返回成功信息
       return {
-        message: '密码重置成功',
+        message: "密码重置成功",
         data: {
           username: user.username,
           email: user.email,
@@ -215,38 +213,28 @@ export class UserController {
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        data: null,
-        result: false,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Post('login')
+  @Post("login")
   @Public() // 标记为公开路由，不需要JWT认证
   async login(@Body() loginDto: LoginDto) {
     try {
       // 检查验证码是否正确
       // 从 Redis 获取存储的验证码
-      let message = '';
-      let data = null;
-
       // 使用AuthService验证用户凭据
       const user = await this.authService.validateUser(
         loginDto.account,
         loginDto.password,
       );
       if (!user) {
-        message = '用户名或密码错误';
-      }
-
-      if (message && !data) {
-        return {
-          message,
-          result: false,
-          data: null,
-        };
+        throw new BusinessException(
+          BusinessErrorCode.USER_LOGIN_INVALID,
+          "用户名或密码错误",
+          HttpStatus.UNAUTHORIZED,
+        );
       }
       // 更新最后登录时间
       await this.userService.updateLastLogin(user.id);
@@ -258,55 +246,46 @@ export class UserController {
 
       // 返回登陆成功后的token和用户信息
       return {
-        message: '登录成功',
+        message: "登录成功",
         result: true,
         data: loginResult, // 包含 access_token 和 user 信息
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        data: null,
-        result: false,
-      };
-    } finally {
-      // 清除已使用的验证码
-      await this.redisService.del(`verificationCode:${loginDto.account}`);
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Post('logout')
+  @Post("logout")
   async logout(@CurrentUser() user: ChatUser) {
     // 清除用户 token
     await this.authService.logout(user);
     return {
-      message: '退出成功',
+      message: "退出成功",
       result: true,
       data: null,
     };
   }
 
-  @Post('saveProfile')
+  @Post("saveProfile")
   async saveProfile(@Request() req, @Body() updateUserDto: UpdateUserDto) {
     try {
       // 更新用户信息
       const result = await this.userService.update(req.user.id, updateUserDto);
       return {
-        message: '用户信息更新成功',
+        message: "用户信息更新成功",
         result: true,
         data: result,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Post('searchFriend')
+  @Post("searchFriend")
   async searchFriend(
     @CurrentUser() user: ChatUser,
     @Body() searchDto: SearchDto,
@@ -317,42 +296,36 @@ export class UserController {
         user.id,
       );
       return {
-        message: '用户搜索成功',
+        message: "用户搜索成功",
         result: true,
         data: result ? [result] : [],
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Post('searchUsers')
-  @ApiOperation({ description: '模糊搜索用户' })
+  @Post("searchUsers")
+  @ApiOperation({ description: "模糊搜索用户" })
   async searchUsersFuzzy(@Body() searchDto: SearchDto) {
     try {
       const users = await this.userService.searchUsersFuzzy(searchDto.query);
       return {
-        message: '用户模糊搜索成功',
+        message: "用户模糊搜索成功",
         result: true,
         data: users,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
   // 添加好友的方法
-  @Post('addFriend')
+  @Post("addFriend")
   async addFriend(
     @CurrentUser() user: ChatUser,
     @Body() addFriendDto: AddFriendDto,
@@ -362,29 +335,26 @@ export class UserController {
         user.id,
         addFriendDto,
       );
-      this.chatGateway.emitToUser(notification.receiverId, 'notification:new', {
+      this.chatGateway.emitToUser(notification.receiverId, "notification:new", {
         notification,
       });
-      this.chatGateway.emitToUser(notification.receiverId, 'friend:request', {
+      this.chatGateway.emitToUser(notification.receiverId, "friend:request", {
         notification,
       });
       return {
-        message: '好友申请已发送',
+        message: "好友申请已发送",
         result: true,
         data: null,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
   // 删除好友：移除好友关系并让该私聊从双方会话列表消失
-  @Post('deleteFriend')
+  @Post("deleteFriend")
   async deleteFriend(
     @CurrentUser() user: ChatUser,
     @Body() removeFriendDto: RemoveFriendDto,
@@ -394,95 +364,86 @@ export class UserController {
       // 通知双方刷新会话/通讯录（前端 onAny 会捕获含 'friend' 的事件）
       this.chatGateway.emitToUsers(
         [user.id, removeFriendDto.friendId],
-        'friend:removed',
+        "friend:removed",
         { userId: user.id, friendId: removeFriendDto.friendId },
       );
       return {
-        message: '已删除好友',
+        message: "已删除好友",
         result: true,
         data: null,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Get('friends')
+  @Get("friends")
   async getFriends(@CurrentUser() user: ChatUser) {
     try {
       const result = await this.userService.getFriends(user.id);
-      this.logger.debug({ event: 'user.search.completed', resultCount: result.length });
+      this.logger.debug({
+        event: "user.search.completed",
+        resultCount: result.length,
+      });
       return {
-        message: '好友列表获取成功',
+        message: "好友列表获取成功",
         result: true,
         data: result,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Get('groups')
+  @Get("groups")
   @ApiOperation({
-    description: '获取当前用户加入的群聊列表（含角色与成员数，排除私聊）',
+    description: "获取当前用户加入的群聊列表（含角色与成员数，排除私聊）",
   })
   async getGroups(@CurrentUser() user: ChatUser) {
     try {
       const result = await this.userService.getGroups(user.id);
       return {
-        message: '群聊列表获取成功',
+        message: "群聊列表获取成功",
         result: true,
         data: Array.isArray(result) ? result : [],
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
-  @Put(':id/status')
+  @Put(":id/status")
   async changeStatus(
-    @Param('id') id: string,
+    @Param("id") id: string,
     @Body() body: ChangeUserStatusDto,
   ) {
     try {
       const result = await this.userService.changeStatus(id, body.status);
-      if (body.status !== 'ACTIVE') {
-        this.chatGateway.disconnectUser(id, '账号已被禁用', 'auth:disabled');
+      if (body.status !== "ACTIVE") {
+        this.chatGateway.disconnectUser(id, "账号已被禁用", "auth:disabled");
       }
 
       return {
-        message: '用户状态更新成功',
+        message: "用户状态更新成功",
         result: true,
         data: result,
       };
     } catch (error) {
       this.logger.error(error);
-      return {
-        message: SERVICE_ERROR_MESSAGE,
-        result: false,
-        data: null,
-      };
+      if (error instanceof HttpException) throw error;
+      throw error;
     }
   }
 
   // 动态参数路由放在最后，避免拦截 friends/groups 等静态路由。
-  @Get(':id')
-  async findById(@Param('id') id: string): Promise<Partial<ChatUser> | null> {
+  @Get(":id")
+  async findById(@Param("id") id: string): Promise<Partial<ChatUser> | null> {
     // 用 findPublicProfile 剥离 passwordHash，供「好友资料」等对外展示使用
     return this.userService.findPublicProfile(id);
   }

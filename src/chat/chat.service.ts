@@ -1,25 +1,22 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { MessageType, Prisma } from '@prisma/client';
-import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'crypto';
-import { PrismaService } from '@/common/database/services/prisma.service';
+import { HttpStatus, Injectable } from "@nestjs/common";
+import { MessageType, Prisma } from "@prisma/client";
+import { ConfigService } from "@nestjs/config";
+import { randomUUID } from "crypto";
+import { PrismaService } from "@/common/database/services/prisma.service";
+import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
+import { BusinessException } from "@/common/core/exceptions/business.exception";
 import {
   ChatModerationService,
   MessageModerationRejectedException,
   ModerationResult,
-} from './chat-moderation.service';
+} from "./chat-moderation.service";
 import {
   CHAT_MODERATION_EVENT_TYPE,
   CHAT_MODERATION_EVENT_VERSION,
   ChatModerationMode,
   MessageModerationRequestedV1,
-} from './chat-moderation.types';
-import { ChatRestrictionService } from './chat-restriction.service';
+} from "./chat-moderation.types";
+import { ChatRestrictionService } from "./chat-restriction.service";
 import {
   CreateGroupRoomDto,
   DeliveredMessageDto,
@@ -27,7 +24,7 @@ import {
   SendPrivateMessageDto,
   SendRoomMessageDto,
   SyncMessagesDto,
-} from './dto/chat.dto';
+} from "./dto/chat.dto";
 
 const messageInclude = {
   sender: {
@@ -75,7 +72,7 @@ export class ChatService {
   ) {}
 
   private getPrivateRoomName(userAId: string, userBId: string) {
-    return [userAId, userBId].sort().join(':');
+    return [userAId, userBId].sort().join(":");
   }
 
   async updateUserLastSeen(userId: string, lastSeenAt = new Date()) {
@@ -95,8 +92,12 @@ export class ChatService {
       },
     });
 
-    if (!member || member.status !== 'ACTIVE') {
-      throw new ForbiddenException('你不是该房间的成员');
+    if (!member || member.status !== "ACTIVE") {
+      throw new BusinessException(
+        BusinessErrorCode.CHAT_NOT_ROOM_MEMBER,
+        "你不是该房间的成员",
+        HttpStatus.FORBIDDEN,
+      );
     }
 
     return member;
@@ -109,13 +110,13 @@ export class ChatService {
       data: {
         name: dto.name,
         description: dto.description,
-        topic: 'GROUP',
+        topic: "GROUP",
         createdBy: ownerId,
         ownerId,
         members: {
           create: memberIds.map((userId) => ({
             userId,
-            role: userId === ownerId ? 'OWNER' : 'MEMBER',
+            role: userId === ownerId ? "OWNER" : "MEMBER",
           })),
         },
       },
@@ -127,7 +128,11 @@ export class ChatService {
 
   async getOrCreatePrivateRoom(senderId: string, receiverId: string) {
     if (senderId === receiverId) {
-      throw new ConflictException('不能给自己发送私聊消息');
+      throw new BusinessException(
+        BusinessErrorCode.CHAT_PRIVATE_SELF_FORBIDDEN,
+        "不能给自己发送私聊消息",
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const receiver = await this.prisma.chatUser.findUnique({
@@ -136,13 +141,17 @@ export class ChatService {
     });
 
     if (!receiver) {
-      throw new NotFoundException('接收者不存在');
+      throw new BusinessException(
+        BusinessErrorCode.CHAT_RECEIVER_NOT_FOUND,
+        "接收者不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     const name = this.getPrivateRoomName(senderId, receiverId);
     const existingRoom = await this.prisma.chatRoom.findFirst({
       where: {
-        topic: 'PRIVATE',
+        topic: "PRIVATE",
         name,
       },
       include: {
@@ -158,7 +167,7 @@ export class ChatService {
           roomId: existingRoom.id,
           userId: { in: [senderId, receiverId] },
         },
-        data: { status: 'ACTIVE' },
+        data: { status: "ACTIVE" },
       });
       return existingRoom;
     }
@@ -166,18 +175,18 @@ export class ChatService {
     return this.prisma.chatRoom.create({
       data: {
         name,
-        topic: 'PRIVATE',
+        topic: "PRIVATE",
         createdBy: senderId,
         ownerId: senderId,
         members: {
           create: [
             {
               userId: senderId,
-              role: 'OWNER',
+              role: "OWNER",
             },
             {
               userId: receiverId,
-              role: 'MEMBER',
+              role: "MEMBER",
             },
           ],
         },
@@ -192,7 +201,7 @@ export class ChatService {
     const members = await this.prisma.roomMember.findMany({
       where: {
         roomId,
-        status: 'ACTIVE',
+        status: "ACTIVE",
       },
       select: {
         userId: true,
@@ -214,7 +223,11 @@ export class ChatService {
     );
     if (existingMessage) {
       if (existingMessage.roomId !== dto.roomId) {
-        throw new ConflictException('客户端消息ID已被用于其他会话');
+        throw new BusinessException(
+          BusinessErrorCode.CHAT_MESSAGE_ID_CONFLICT,
+          "客户端消息ID已被用于其他会话",
+          HttpStatus.CONFLICT,
+        );
       }
 
       return {
@@ -235,7 +248,7 @@ export class ChatService {
     let moderation: ModerationResult | undefined;
     const messageType = dto.messageType ?? MessageType.TEXT;
     if (
-      moderationMode === 'sync' &&
+      moderationMode === "sync" &&
       messageType === MessageType.TEXT &&
       dto.content?.trim()
     ) {
@@ -244,7 +257,7 @@ export class ChatService {
         userId: senderId,
         roomId: dto.roomId,
       });
-      if (moderation.decision === 'REJECT') {
+      if (moderation.decision === "REJECT") {
         await this.moderationService.recordResult({
           userId: senderId,
           roomId: dto.roomId,
@@ -257,13 +270,13 @@ export class ChatService {
 
     try {
       const shouldQueueModeration =
-        (moderationMode === 'async' || moderationMode === 'shadow') &&
+        (moderationMode === "async" || moderationMode === "shadow") &&
         messageType === MessageType.TEXT &&
         Boolean(dto.content?.trim());
       const eventId = shouldQueueModeration ? randomUUID() : undefined;
       const policyVersion = this.config.get<string>(
-        'ai.moderationPolicyVersion',
-        'v1',
+        "ai.moderationPolicyVersion",
+        "v1",
       );
       const message = await this.prisma.$transaction(async (tx) => {
         const createdMessage = await tx.message.create({
@@ -282,7 +295,7 @@ export class ChatService {
             mediaHeight: dto.mediaHeight,
             duration: dto.duration,
             moderationStatus: shouldQueueModeration
-              ? 'PENDING'
+              ? "PENDING"
               : this.getSynchronousModerationStatus(moderation),
             moderatedAt: moderation ? new Date() : undefined,
           },
@@ -331,7 +344,7 @@ export class ChatService {
       if (
         dto.clientMessageId &&
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
+        error.code === "P2002"
       ) {
         const retryMessage = await this.findIdempotentMessage(
           senderId,
@@ -403,7 +416,7 @@ export class ChatService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
       take: dto.take ?? 50,
     });
@@ -428,7 +441,11 @@ export class ChatService {
       });
 
       if (!cursorMessage) {
-        throw new NotFoundException('同步游标消息不存在');
+        throw new BusinessException(
+          BusinessErrorCode.CHAT_SYNC_CURSOR_NOT_FOUND,
+          "同步游标消息不存在",
+          HttpStatus.NOT_FOUND,
+        );
       }
 
       messages = await this.prisma.message.findMany({
@@ -442,10 +459,10 @@ export class ChatService {
         skip: 1,
         orderBy: [
           {
-            createdAt: 'asc',
+            createdAt: "asc",
           },
           {
-            id: 'asc',
+            id: "asc",
           },
         ],
         take,
@@ -459,10 +476,10 @@ export class ChatService {
         },
         orderBy: [
           {
-            createdAt: 'desc',
+            createdAt: "desc",
           },
           {
-            id: 'desc',
+            id: "desc",
           },
         ],
         take,
@@ -511,7 +528,11 @@ export class ChatService {
     });
 
     if (!message) {
-      throw new NotFoundException('消息不存在');
+      throw new BusinessException(
+        BusinessErrorCode.CHAT_MESSAGE_NOT_FOUND,
+        "消息不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return this.upsertDeliveredState(
@@ -574,19 +595,23 @@ export class ChatService {
       select: { id: true, topic: true },
     });
     if (!room) {
-      throw new NotFoundException('房间不存在');
+      throw new BusinessException(
+        BusinessErrorCode.CHAT_ROOM_NOT_FOUND,
+        "房间不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     // 软移除自己：与删除好友一致采用 INACTIVE，保留关系记录与历史
     await this.prisma.roomMember.update({
       where: { roomId_userId: { roomId, userId } },
-      data: { status: 'INACTIVE' },
+      data: { status: "INACTIVE" },
     });
 
     // 剩余 ACTIVE 成员（按加入时间升序，用于群主转让）
     const remaining = await this.prisma.roomMember.findMany({
-      where: { roomId, status: 'ACTIVE' },
-      orderBy: { joinedAt: 'asc' },
+      where: { roomId, status: "ACTIVE" },
+      orderBy: { joinedAt: "asc" },
       select: { userId: true },
     });
     const remainingMemberIds = remaining.map((m) => m.userId);
@@ -601,13 +626,13 @@ export class ChatService {
         data: { isArchived: true },
       });
       disbanded = true;
-    } else if (member.role === 'OWNER') {
+    } else if (member.role === "OWNER") {
       // 群主退出：转让给最早加入的剩余成员
       newOwnerId = remainingMemberIds[0];
       await this.prisma.$transaction([
         this.prisma.roomMember.update({
           where: { roomId_userId: { roomId, userId: newOwnerId } },
-          data: { role: 'OWNER' },
+          data: { role: "OWNER" },
         }),
         this.prisma.chatRoom.update({
           where: { id: roomId },
@@ -640,7 +665,11 @@ export class ChatService {
       select: { id: true },
     });
     if (!room) {
-      throw new NotFoundException('房间不存在');
+      throw new BusinessException(
+        BusinessErrorCode.CHAT_ROOM_NOT_FOUND,
+        "房间不存在",
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     // 去重 + 排除邀请者自己
@@ -653,8 +682,8 @@ export class ChatService {
         targets.map((userId) =>
           this.prisma.roomMember.upsert({
             where: { roomId_userId: { roomId, userId } },
-            create: { roomId, userId, role: 'MEMBER', status: 'ACTIVE' },
-            update: { status: 'ACTIVE' },
+            create: { roomId, userId, role: "MEMBER", status: "ACTIVE" },
+            update: { status: "ACTIVE" },
           }),
         ),
       );
@@ -679,12 +708,12 @@ export class ChatService {
    */
   async listConversations(userId: string) {
     const memberships = await this.prisma.roomMember.findMany({
-      where: { userId, status: 'ACTIVE' },
+      where: { userId, status: "ACTIVE" },
       include: {
         room: {
           include: {
             members: {
-              where: { status: 'ACTIVE' },
+              where: { status: "ACTIVE" },
               include: {
                 user: {
                   select: {
@@ -701,7 +730,7 @@ export class ChatService {
           },
         },
       },
-      orderBy: { room: { updatedAt: 'desc' } },
+      orderBy: { room: { updatedAt: "desc" } },
     });
 
     if (memberships.length === 0) return [];
@@ -785,7 +814,7 @@ export class ChatService {
     await this.assertRoomMember(roomId, userId);
 
     return this.prisma.roomMember.findMany({
-      where: { roomId, status: 'ACTIVE' },
+      where: { roomId, status: "ACTIVE" },
       include: {
         user: {
           select: {
@@ -798,7 +827,7 @@ export class ChatService {
           },
         },
       },
-      orderBy: { joinedAt: 'asc' },
+      orderBy: { joinedAt: "asc" },
     });
   }
 
@@ -822,15 +851,15 @@ export class ChatService {
   }
 
   private getModerationMode(): ChatModerationMode {
-    if (!this.config.get<boolean>('ai.moderationEnabled', true)) return 'off';
-    return this.config.get<ChatModerationMode>('ai.moderationMode', 'async');
+    if (!this.config.get<boolean>("ai.moderationEnabled", true)) return "off";
+    return this.config.get<ChatModerationMode>("ai.moderationMode", "async");
   }
 
   private getSynchronousModerationStatus(moderation?: ModerationResult) {
-    if (!moderation) return 'NOT_APPLICABLE' as const;
-    if (moderation.decision === 'PASS') return 'PASSED' as const;
-    if (moderation.decision === 'REVIEW') return 'REVIEW' as const;
-    return 'DEGRADED' as const;
+    if (!moderation) return "NOT_APPLICABLE" as const;
+    if (moderation.decision === "PASS") return "PASSED" as const;
+    if (moderation.decision === "REVIEW") return "REVIEW" as const;
+    return "DEGRADED" as const;
   }
 
   private async upsertDeliveredState(
