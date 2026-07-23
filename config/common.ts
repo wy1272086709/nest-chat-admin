@@ -68,6 +68,7 @@ export default () => ({
       process.env.MINIO_ENDPOINT ?? process.env.MINIO_HOST ?? "localhost",
     port: Number(process.env.MINIO_PORT ?? 9000),
     useSSL: process.env.MINIO_USE_SSL === "true",
+    region: process.env.MINIO_REGION ?? "us-east-1",
     accessKey:
       process.env.MINIO_ACCESS_KEY ??
       process.env.MINIO_ROOT_USER ??

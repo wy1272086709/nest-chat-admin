@@ -111,7 +111,7 @@ export class ChatModerationConsumer implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (processed) {
-        await this.actions.apply(event, {
+        const result: ModerationResult = {
           decision: processed.decision as ModerationResult['decision'],
           categories: this.toCategories(processed.categories),
           confidence: processed.confidence ?? undefined,
@@ -119,8 +119,10 @@ export class ChatModerationConsumer implements OnModuleInit, OnModuleDestroy {
           model: processed.model ?? undefined,
           statusCode: processed.statusCode,
           durationMs: processed.durationMs,
-        });
+        };
+        await this.actions.apply(event, result);
         channel.ack(message);
+        this.logProcessed(event, result, attempts);
         return;
       }
 
@@ -151,14 +153,16 @@ export class ChatModerationConsumer implements OnModuleInit, OnModuleDestroy {
         chatMessage.messageType !== MessageType.TEXT ||
         !chatMessage.content?.trim()
       ) {
-        await this.saveResult(event, {
+        const result: ModerationResult = {
           decision: 'PASS',
           categories: [],
           reason: '非文本消息无需审核',
           statusCode: 200,
           durationMs: 0,
-        });
+        };
+        await this.saveResult(event, result);
         channel.ack(message);
+        this.logProcessed(event, result, attempts);
         return;
       }
 
@@ -176,20 +180,14 @@ export class ChatModerationConsumer implements OnModuleInit, OnModuleDestroy {
       await this.saveResult(event, result);
       await this.actions.apply(event, result);
       channel.ack(message);
-      this.logger.log({
-        event: 'chat_moderation.message_processed',
-        eventId: event.eventId,
-        messageId: event.messageId,
-        decision: result.decision,
-        attempts,
-      });
+      this.logProcessed(event, result, attempts);
     } catch (error) {
       const nextAttempts = attempts + 1;
       const errorCode = this.errorCode(error);
       try {
         if (nextAttempts >= this.queue.maxRetry) {
           await this.deadLetter(event, nextAttempts, errorCode);
-          await this.saveResult(event, {
+          const result: ModerationResult = {
             decision: 'DEGRADED',
             categories: [],
             reason: 'AI 审核重试次数已耗尽',
@@ -197,7 +195,9 @@ export class ChatModerationConsumer implements OnModuleInit, OnModuleDestroy {
             durationMs: 0,
             retryable: false,
             errorCode,
-          });
+          };
+          await this.saveResult(event, result);
+          this.logProcessed(event, result, nextAttempts);
         } else {
           await this.queue.publishRetry(event, nextAttempts, errorCode);
         }
@@ -311,6 +311,25 @@ export class ChatModerationConsumer implements OnModuleInit, OnModuleDestroy {
   private getAttempts(message: ConsumeMessage) {
     const attempts = message.properties.headers?.['x-attempts'];
     return typeof attempts === 'number' ? attempts : Number(attempts || 0);
+  }
+
+  private logProcessed(
+    event: MessageModerationRequestedV1,
+    result: ModerationResult,
+    attempts: number,
+  ) {
+    this.logger.log({
+      event: 'chat_moderation.message_processed',
+      eventId: event.eventId,
+      messageId: event.messageId,
+      decision: result.decision,
+      reason: result.reason ?? null,
+      statusCode: result.statusCode,
+      errorCode: result.errorCode ?? null,
+      durationMs: result.durationMs,
+      model: result.model ?? null,
+      attempts,
+    });
   }
 
   private shouldRun() {

@@ -8,6 +8,8 @@
     "build": "nest build",
     "deploy:dev": "bash deploy.sh dev",
     "deploy:prod": "bash deploy.sh prod",
+    "restart:dev": "bash restart-app.sh dev",
+    "restart:prod": "bash restart-app.sh prod",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "NODE_ENV=development && nest start",
     "start:dev": "NODE_ENV=development && nest start --watch",

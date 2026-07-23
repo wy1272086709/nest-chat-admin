@@ -47,6 +47,13 @@ export class ChatModerationQueueService {
       event,
       this.publishOptions(event.eventId, 0),
     );
+    this.logger.log({
+      event: 'chat_moderation.message_published',
+      eventId: event.eventId,
+      messageId: event.messageId,
+      queue: CHAT_MODERATION_TOPOLOGY.queue,
+      routingKey: CHAT_MODERATION_TOPOLOGY.routingKey,
+    });
   }
 
   async publishRetry(

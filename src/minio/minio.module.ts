@@ -20,6 +20,7 @@ function getMinioCredentials(configService: ConfigService) {
           endPoint: configService.get<string>("minio.endPoint", "localhost"),
           port: configService.get<number>("minio.port", 9000),
           useSSL: configService.get<boolean>("minio.useSSL", false),
+          region: configService.get<string>("minio.region", "us-east-1"),
           ...getMinioCredentials(configService),
         });
       },
@@ -42,6 +43,7 @@ function getMinioCredentials(configService: ConfigService) {
           useSSL: url
             ? url.protocol === "https:"
             : configService.get<boolean>("minio.useSSL", false),
+          region: configService.get<string>("minio.region", "us-east-1"),
           ...getMinioCredentials(configService),
         });
       },
