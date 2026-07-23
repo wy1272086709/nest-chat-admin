@@ -21,10 +21,10 @@ import {
   SendRoomMessageDto,
   SyncMessagesDto,
 } from "./dto/chat.dto";
-import { MessageModerationRejectedException } from "./chat-moderation.service";
-import { ChatUserMutedException } from "./chat-restriction.service";
-import { createWsErrorResponse } from "./ws-error-response";
-import { WsExceptionFilter } from "./ws-exception.filter";
+import { MessageModerationRejectedException } from "./moderation/chat-moderation.service";
+import { ChatUserMutedException } from "./moderation/chat-restriction.service";
+import { createWsErrorResponse } from "./websocket/ws-error-response";
+import { WsExceptionFilter } from "./websocket/ws-exception.filter";
 
 type AuthenticatedSocket = Socket & {
   data: {

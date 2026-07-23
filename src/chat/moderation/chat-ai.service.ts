@@ -13,7 +13,7 @@ import { PrismaService } from "@/common/database/services/prisma.service";
 import { RedisService } from "@/common/core/services/redis.service";
 import { BusinessErrorCode } from "@/common/core/constants/business-error-code.constant";
 import { BusinessException } from "@/common/core/exceptions/business.exception";
-import { ChatService } from "./chat.service";
+import { ChatService } from "../chat.service";
 
 type AiUsage = {
   inputTokens: number;

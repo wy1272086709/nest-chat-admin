@@ -25,7 +25,7 @@ token 来自 `secureStorageService.getAccessToken()`。
 | `chat:error`     | 连接或鉴权异常   | 打印错误日志                                           |
 | `message:new`    | 新消息到达       | 更新会话预览、未读数；当前打开房间时追加消息并标记已读 |
 | `message:sent`   | 发送成功回执     | 刷新会话列表                                           |
-| `message:moderated` | 违规消息被撤回 | 从消息列表和会话预览移除对应消息并重新同步房间 |
+| `message:moderated` | 违规消息被屏蔽 | 将对应消息的正文原位替换为服务端下发的占位文本 |
 | `moderation:warning` | 当前用户收到内容警告 | 展示社区规范警告，不自动重发原消息 |
 | `moderation:restricted` | 当前用户被限时禁言 | 展示禁言截止时间并禁用发送控件 |
 | `room:created`   | 新群聊创建       | 刷新会话列表                                           |
@@ -40,11 +40,12 @@ token 来自 `secureStorageService.getAccessToken()`。
   "messageId": "message-id",
   "roomId": "room-id",
   "status": "REJECTED",
+  "content": "该消息违规，已被屏蔽，请文明发言！",
   "moderatedAt": "2026-07-17T12:00:00.000Z"
 }
 ```
 
-客户端不能只在本地隐藏消息；收到事件后应重新同步房间，因为服务端历史和同步接口会排除已软删除消息。
+客户端应使用事件中的 `content` 原位替换消息正文，不得继续保留违规原文。服务端历史和同步接口也会返回同一占位文本。
 
 ## 通知事件规范
 

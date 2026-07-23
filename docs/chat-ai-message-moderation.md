@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | `PASS` | 消息保持可见 | `NOT_REQUIRED` |
 | `REVIEW` | 消息保持可见，保留待处理记录 | `PENDING` |
-| `REJECT` | 影子模式只记录；启用动作后软删除并实时撤回 | `PENDING` |
+| `REJECT` | 影子模式只记录；启用动作后将正文替换为违规占位提示并实时通知 | `PENDING` |
 | `DEGRADED` | 重试耗尽或永久错误时保持可见 | `PENDING` |
 
 这是异步 fail-open 策略：审核基础设施故障不能阻断正常聊天。同步模式仍保留用于回滚，但不是默认模式。
@@ -66,7 +66,7 @@ AI_MODERATION_ENFORCEMENT_ENABLED=false
 - `AI_MODERATION_MAX_CHARACTERS`：最多提交给模型的消息字符数，默认 4000。
 - `AI_MODERATION_MODE`：`async`、`shadow`、`sync` 或 `off`；默认 `async`。
 - `AI_MODERATION_POLICY_VERSION`：写入事件和审核记录的策略版本。
-- `AI_MODERATION_ACTIONS_ENABLED`：是否对 `REJECT` 消息执行软删除和撤回，默认关闭。
+- `AI_MODERATION_ACTIONS_ENABLED`：是否对 `REJECT` 消息执行违规正文替换，默认开启；影子审核环境应显式设为 `false`。
 - `AI_MODERATION_ENFORCEMENT_ENABLED`：是否累计违规并执行警告、禁言，默认关闭。
 
 消息超过审核字符上限时只提交前半部分；即使模型判断为 `PASS`，最终也会转为 `REVIEW` 并添加 `content_truncated` 分类，避免超长消息被当作已完整审核。

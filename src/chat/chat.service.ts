@@ -9,14 +9,14 @@ import {
   ChatModerationService,
   MessageModerationRejectedException,
   ModerationResult,
-} from "./chat-moderation.service";
+} from "./moderation/chat-moderation.service";
 import {
   CHAT_MODERATION_EVENT_TYPE,
   CHAT_MODERATION_EVENT_VERSION,
   ChatModerationMode,
   MessageModerationRequestedV1,
-} from "./chat-moderation.types";
-import { ChatRestrictionService } from "./chat-restriction.service";
+} from "./moderation/chat-moderation.types";
+import { ChatRestrictionService } from "./moderation/chat-restriction.service";
 import {
   CreateGroupRoomDto,
   DeliveredMessageDto,

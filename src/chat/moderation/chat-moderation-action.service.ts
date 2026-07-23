@@ -1,13 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '@/common/database/services/prisma.service';
-import { ChatGateway } from './chat.gateway';
-import { ModerationResult } from './chat-moderation.service';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "@/common/database/services/prisma.service";
+import { ChatGateway } from "../chat.gateway";
+import { ModerationResult } from "./chat-moderation.service";
 import {
   ChatModerationMode,
   MessageModerationRequestedV1,
-} from './chat-moderation.types';
-import { ChatModerationEnforcementService } from './chat-moderation-enforcement.service';
+} from "./chat-moderation.types";
+import { ChatModerationEnforcementService } from "./chat-moderation-enforcement.service";
+
+const MODERATED_MESSAGE_PLACEHOLDER = "该消息涉及敏感言论，无法展示";
 
 @Injectable()
 export class ChatModerationActionService {
@@ -21,34 +23,39 @@ export class ChatModerationActionService {
   ) {}
 
   async apply(event: MessageModerationRequestedV1, result: ModerationResult) {
-    if (result.decision !== 'REJECT' || !this.actionsEnabled()) return;
+    if (result.decision !== "REJECT" || !this.actionsEnabled()) return;
 
-    const deletedAt = new Date();
+    const moderatedAt = new Date();
     const updated = await this.prisma.message.updateMany({
       where: { id: event.messageId, isDeleted: false },
-      data: { isDeleted: true, deletedAt },
+      data: {
+        content: MODERATED_MESSAGE_PLACEHOLDER,
+        moderationStatus: "REJECTED",
+        moderatedAt,
+      },
     });
     if (updated.count === 1) {
       const members = await this.prisma.roomMember.findMany({
-        where: { roomId: event.roomId, status: 'ACTIVE' },
+        where: { roomId: event.roomId, status: "ACTIVE" },
         select: { userId: true },
       });
       const payload = {
         messageId: event.messageId,
         roomId: event.roomId,
-        status: 'REJECTED',
-        moderatedAt: deletedAt.toISOString(),
+        status: "REJECTED",
+        content: MODERATED_MESSAGE_PLACEHOLDER,
+        moderatedAt: moderatedAt.toISOString(),
       };
       try {
         this.gateway.emitToUsers(
           members.map((member) => member.userId),
-          'message:moderated',
+          "message:moderated",
           payload,
         );
       } catch (error) {
-        // 数据库可见性是事实来源；实时通知失败时客户端会在下次同步时收敛。
+        // 数据库中的占位文本是事实来源；通知失败时下次同步仍会收敛。
         this.logger.error({
-          event: 'chat_moderation.broadcast_failed',
+          event: "chat_moderation.broadcast_failed",
           messageId: event.messageId,
           roomId: event.roomId,
           error: error instanceof Error ? error.message : String(error),
@@ -60,12 +67,12 @@ export class ChatModerationActionService {
 
   private actionsEnabled() {
     const mode = this.config.get<ChatModerationMode>(
-      'ai.moderationMode',
-      'async',
+      "ai.moderationMode",
+      "async",
     );
     return (
-      mode === 'async' &&
-      this.config.get<boolean>('ai.moderationActionsEnabled', false)
+      mode === "async" &&
+      this.config.get<boolean>("ai.moderationActionsEnabled", false)
     );
   }
 }

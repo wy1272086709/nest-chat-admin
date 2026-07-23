@@ -22,7 +22,7 @@ import {
   InitPrivateRoomDto,
   SyncMessagesQueryDto,
 } from "./dto/chat.dto";
-import { ChatAiService } from "./chat-ai.service";
+import { ChatAiService } from "./moderation/chat-ai.service";
 
 /**
  * 聊天 HTTP 接口。

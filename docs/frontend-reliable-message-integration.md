@@ -282,9 +282,12 @@ socket.on('message:new', (message) => {
   markDelivered(message);
 });
 
-socket.on('message:moderated', ({ messageId, roomId }) => {
-  removeMessageFromLocalState(roomId, messageId);
-  void syncRoomMessages(roomId);
+socket.on('message:moderated', ({ messageId, roomId, content, moderatedAt }) => {
+  replaceMessageContent(roomId, messageId, {
+    content,
+    moderationStatus: 'REJECTED',
+    moderatedAt,
+  });
 });
 
 socket.on('moderation:warning', ({ message }) => {

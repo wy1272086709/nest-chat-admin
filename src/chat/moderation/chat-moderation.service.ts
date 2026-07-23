@@ -103,7 +103,7 @@ export class ChatModerationService {
     const configuredMode = this.config.get<string>("ai.apiMode", "auto");
     const useChatCompletions =
       configuredMode === "chat-completions" ||
-      (configuredMode === "auto" && model.startsWith("qwen-coder"));
+      (configuredMode === "auto" && model.startsWith("qwen-"));
     const timeoutMs = this.config.get<number>("ai.moderationTimeoutMs", 5000);
     const maxCharacters = this.config.get<number>(
       "ai.moderationMaxCharacters",
@@ -195,8 +195,34 @@ export class ChatModerationService {
         );
       }
 
-      const value = JSON.parse(outputText) as Record<string, unknown>;
+      let value: Record<string, unknown>;
+      try {
+        value = JSON.parse(this.unwrapJson(outputText)) as Record<
+          string,
+          unknown
+        >;
+      } catch {
+        statusCode = 502;
+        return this.degraded(
+          startedAt,
+          502,
+          "AI 内容审核格式错误",
+          model,
+          false,
+          "INVALID_JSON_RESPONSE",
+        );
+      }
       if (!this.isValidResult(value)) {
+        this.logger.warn({
+          event: "chat_moderation_invalid_response",
+          model,
+          fields: Object.fromEntries(
+            Object.entries(value).map(([key, fieldValue]) => [
+              key,
+              Array.isArray(fieldValue) ? "array" : typeof fieldValue,
+            ]),
+          ),
+        });
         statusCode = 502;
         return this.degraded(
           startedAt,
@@ -366,5 +392,11 @@ export class ChatModerationService {
       value.confidence <= 1 &&
       typeof value.reason === "string"
     );
+  }
+
+  private unwrapJson(output: string) {
+    const trimmed = output.trim();
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenced?.[1] ?? trimmed;
   }
 }

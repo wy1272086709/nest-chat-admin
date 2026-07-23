@@ -131,7 +131,7 @@ export default () => ({
     moderationMode: process.env.AI_MODERATION_MODE ?? "async",
     moderationPolicyVersion: process.env.AI_MODERATION_POLICY_VERSION ?? "v1",
     moderationActionsEnabled:
-      process.env.AI_MODERATION_ACTIONS_ENABLED === "true",
+      process.env.AI_MODERATION_ACTIONS_ENABLED !== "false",
     moderationEnforcementEnabled:
       process.env.AI_MODERATION_ENFORCEMENT_ENABLED === "true",
     moderationViolationWindowMs: Number(

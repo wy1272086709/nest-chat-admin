@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, ChatRestrictionStatus } from '@prisma/client';
 import { PrismaService } from '@/common/database/services/prisma.service';
-import { ChatGateway } from './chat.gateway';
+import { ChatGateway } from '../chat.gateway';
 import { ModerationResult } from './chat-moderation.service';
 import { MessageModerationRequestedV1 } from './chat-moderation.types';
 

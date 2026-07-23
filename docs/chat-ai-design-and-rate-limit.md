@@ -1,6 +1,6 @@
 # 聊天 AI 功能设计、Token 统计与频率限制
 
-本文说明当前聊天 AI 功能的运行流程、模型适配、数据边界、Token 用量记录以及 Redis 频率限制。运行时代码以 `src/chat/chat-ai.service.ts` 为准。
+本文说明当前聊天 AI 功能的运行流程、模型适配、数据边界、Token 用量记录以及 Redis 频率限制。运行时代码以 `src/chat/moderation/chat-ai.service.ts` 为准。
 
 ## 1. 功能范围
 

@@ -45,8 +45,8 @@ WebSocket 未知异常
 - `src/common/core/responses/response.factory.ts`
 - `src/common/core/filters/exception.filter.ts`
 - `src/common/core/interceptors/transform.interceptor.ts`
-- `src/chat/ws-error-response.ts`
-- `src/chat/ws-exception.filter.ts`
+- `src/chat/websocket/ws-error-response.ts`
+- `src/chat/websocket/ws-exception.filter.ts`
 
 ## 3. HTTP 响应契约
 
